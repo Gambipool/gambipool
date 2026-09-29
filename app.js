@@ -1,0 +1,504 @@
+/* Gambipool · app (React 18 + htm, sin compilación) */
+const { useState, useEffect, useMemo, useCallback } = React;
+const html = htm.bind(React.createElement);
+
+/* ---------- Configuración ---------- */
+const SB_URL = "https://jrdmqkpqmgbjgypbhypu.supabase.co";
+const SB_KEY = "sb_publishable_EbuD9gsbgVyedG4fB42xaA_fKlpaZF3";
+const sb = supabase.createClient(SB_URL, SB_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+});
+
+/* ---------- Utilidades ---------- */
+const iniciales = (n = "") => n.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+const norm = (s = "") => s.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const emailValido = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+const fmtFecha = (d) => (d ? new Date(d).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : "");
+const ESTADOS = { activo: "Activo", espera: "Lista de espera", baja: "Baja" };
+const errTxt = (e) => (e && (e.message || e.error_description || String(e))) || "Error desconocido";
+
+const I = {
+  home: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>`,
+  cal: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`,
+  card: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`,
+  list: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></svg>`,
+  flag: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 21V4M6 4h11l-2 4 2 4H6"/></svg>`,
+  lock: html`<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
+  phone: html`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>`,
+};
+
+/* ---------- Componentes base ---------- */
+function Cabecera({ sub, titulo, onBack, backTxt = "Volver", admin, onComite }) {
+  return html`<header class="hd">
+    ${onBack && html`<button class="back" onClick=${onBack}>‹ ${backTxt}</button>`}
+    <small>${sub}</small><h1>${titulo}</h1>
+    ${admin && html`<button class="lock" aria-label="Panel del comité" onClick=${onComite}>${I.lock}</button>`}
+  </header>`;
+}
+
+function Nav({ tab, setTab }) {
+  const items = [["inicio", "Inicio", I.home], ["calendario", "Calendario", I.cal], ["tarjeta", "Tarjeta", I.card], ["clasificacion", "Clasificación", I.list], ["pool", "La Pool", I.flag]];
+  return html`<nav class="nav">${items.map(([k, l, ic]) => html`<button key=${k} class=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${ic}${l}</button>`)}</nav>`;
+}
+
+const Spinner = () => html`<div class="spinner" aria-label="Cargando"></div>`;
+const Toggle = ({ on, onChange, label }) =>
+  html`<div class="sw" onClick=${() => onChange(!on)}><span>${label}</span><button type="button" class=${"tg" + (on ? " on" : "")} aria-pressed=${on} aria-label=${label}></button></div>`;
+
+/* ---------- Acceso ---------- */
+function Login() {
+  const [paso, setPaso] = useState("email");
+  const [email, setEmail] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [err, setErr] = useState("");
+  const [cargando, setCargando] = useState(false);
+
+  const enviar = async (e) => {
+    e && e.preventDefault();
+    const em = email.trim().toLowerCase();
+    setErr("");
+    if (!emailValido(em)) return setErr("Escribe un email válido.");
+    setCargando(true);
+    try {
+      const { data: ok, error: e1 } = await sb.rpc("email_autorizado", { p_email: em });
+      if (e1) throw e1;
+      if (!ok) { setErr("Este email no está dado de alta en la pool. Habla con el comité."); return; }
+      const { error } = await sb.auth.signInWithOtp({ email: em, options: { shouldCreateUser: true } });
+      if (error) throw error;
+      setEmail(em); setPaso("codigo");
+    } catch (e2) { setErr(errTxt(e2)); } finally { setCargando(false); }
+  };
+
+  const verificar = async (e) => {
+    e.preventDefault(); setErr("");
+    const c = codigo.replace(/\D/g, "");
+    if (c.length < 6) return setErr("El código tiene 6 cifras.");
+    setCargando(true);
+    const { error } = await sb.auth.verifyOtp({ email, token: c, type: "email" });
+    setCargando(false);
+    if (error) setErr("Código incorrecto o caducado. Pide uno nuevo.");
+  };
+
+  return html`<div class="login">
+    <div class="logo">Gambipool<small>Real Guadalhorce Club de Golf</small></div>
+    ${paso === "email" ? html`<form onSubmit=${enviar}>
+        <p class="muted center" style=${{"marginTop": "34px"}}>Acceso solo para miembros de la pool</p>
+        <label class="l" for="em">Tu email</label>
+        <input id="em" class="inp" type="email" inputmode="email" autocomplete="email" autocapitalize="off" value=${email} onInput=${(e) => setEmail(e.target.value)} />
+        <button class="btn" disabled=${cargando}>${cargando ? "Enviando…" : "Enviarme el código"}</button>
+        ${err && html`<div class="err">${err}</div>`}
+        <p class="muted">Te llegará un código por email. Solo se pide la primera vez: después la sesión queda abierta en este móvil.</p>
+      </form>`
+    : html`<form onSubmit=${verificar}>
+        <p class="center" style=${{"marginTop": "30px"}}>Hemos enviado un código a<br/><b>${email}</b></p>
+        <label class="l" for="cod">Código</label>
+        <input id="cod" class="inp code num" inputmode="numeric" autocomplete="one-time-code" maxlength="10" value=${codigo} onInput=${(e) => setCodigo(e.target.value)} />
+        <button class="btn" disabled=${cargando}>${cargando ? "Comprobando…" : "Entrar"}</button>
+        ${err && html`<div class="err">${err}</div>`}
+        <p class="center"><button type="button" class="link" onClick=${() => enviar()}>Reenviar código</button> · <button type="button" class="link" onClick=${() => { setPaso("email"); setCodigo(""); setErr(""); }}>Cambiar email</button></p>
+        <p class="muted center">Si no lo ves, mira en la carpeta de spam.</p>
+      </form>`}
+  </div>`;
+}
+
+function Privacidad({ yo, onOk }) {
+  const [acepta, setAcepta] = useState(false);
+  const [err, setErr] = useState("");
+  const seguir = async () => {
+    const { error } = await sb.rpc("aceptar_privacidad");
+    if (error) return setErr(errTxt(error));
+    onOk();
+  };
+  return html`<div class="login">
+    <div class="logo" style=${{"fontSize": "28px"}}>Bienvenido, ${yo.nombre_corto.split(" ")[0]}</div>
+    <div class="card" style=${{"margin": "24px 0 0"}}>
+      <h3>Protección de datos</h3>
+      <p class="muted">[Texto informativo pendiente de redactar por el comité: responsable del tratamiento, finalidad (gestión de la Gambipool), datos que se guardan (nombre, email, móvil, licencia, hándicap y resultados), quién los ve (el resto de jugadores solo nombre y móvil; el comité, todos) y cómo ejercer los derechos.]</p>
+    </div>
+    <${Toggle} on=${acepta} onChange=${setAcepta} label="He leído y acepto" />
+    <button class="btn" disabled=${!acepta} onClick=${seguir}>Continuar</button>
+    ${err && html`<div class="err">${err}</div>`}
+  </div>`;
+}
+
+/* ---------- Pantallas de jugador ---------- */
+function Inicio({ yo, temporada }) {
+  return html`<div>
+    <div class="card"><span class="tag">${temporada ? temporada.nombre : "Sin temporada activa"}</span>
+      <h3 style=${{"marginTop": "8px"}}>Próxima jornada</h3>
+      <p class="muted">La inscripción a las jornadas llega en el siguiente apartado de la app.</p></div>
+    <div class="card"><h3>Tu ficha</h3>
+      <div class="kv"><span>Nombre</span><b>${yo.nombre}</b></div>
+      <div class="kv"><span>Email</span><b>${yo.email}</b></div>
+      ${yo.es_admin && html`<p class="muted" style=${{"marginBottom": "0"}}>Eres del comité: el candado de arriba abre el panel.</p>`}
+    </div>
+  </div>`;
+}
+
+const Proximamente = ({ que }) => html`<div class="card"><h3>${que}</h3><p class="muted">Este apartado se construye en las próximas fases.</p></div>`;
+
+function Directorio() {
+  const [lista, setLista] = useState(null);
+  const [q, setQ] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => { sb.rpc("directorio").then(({ data, error }) => (error ? setErr(errTxt(error)) : setLista(data || []))); }, []);
+  const vis = (lista || []).filter((j) => norm(j.nombre_corto + " " + j.nombre).includes(norm(q)));
+  return html`<div>
+    <div class="search"><input class="inp" placeholder="Buscar jugador…" value=${q} onInput=${(e) => setQ(e.target.value)} /></div>
+    ${err && html`<div class="err" style=${{"margin": "12px"}}>${err}</div>`}
+    ${!lista && !err ? html`<${Spinner}/>` : html`<div class="list">${vis.map((j) => html`<div class="row" key=${j.nombre_corto}>
+        <span class="av">${iniciales(j.nombre_corto)}</span>
+        <span class="n">${j.nombre_corto}<small>${j.movil || "Sin móvil"}</small></span>
+        ${j.movil && html`<a href=${"tel:" + j.movil.replace(/\s/g, "")} aria-label=${"Llamar a " + j.nombre_corto} style=${{"color": "var(--hd)", "padding": "6px"}}>${I.phone}</a>`}
+      </div>`)}</div>`}
+  </div>`;
+}
+
+function Pool({ yo, go }) {
+  const items = [["directorio", "Jugadores", "Nombre y móvil de todos"], ["perfil", "Mi perfil", "Tus datos y cerrar sesión"], ["-", "Reglamento", "Próximamente"], ["-", "Ryder", "Próximamente"], ["-", "Lista de espera", "Próximamente"], ["-", "Estadísticas", "Segunda fase"]];
+  return html`<div class="list" style=${{"marginTop": "12px"}}>${items.map(([k, t, s]) => html`<button class="row" key=${t} disabled=${k === "-"} onClick=${() => k !== "-" && go(k)} style=${k === "-" ? { opacity: 0.55 } : null}>
+      <span class="n">${t}<small>${s}</small></span><span aria-hidden="true">›</span></button>`)}</div>`;
+}
+
+function Perfil({ yo }) {
+  return html`<div>
+    <div class="card"><h3>${yo.nombre}</h3>
+      <div class="kv"><span>Nombre corto</span><b>${yo.nombre_corto}</b></div>
+      <div class="kv"><span>Email</span><b>${yo.email}</b></div>
+      <div class="kv"><span>Móvil</span><b>${yo.movil || "—"}</b></div>
+      <div class="kv"><span>Licencia</span><b>${yo.licencia || "—"}</b></div>
+      <div class="kv"><span>Último hándicap</span><b class="num">${yo.ultimo_hcp != null ? String(yo.ultimo_hcp).replace(".", ",") : "—"}</b></div>
+      <p class="muted" style=${{"marginBottom": "0"}}>Si algún dato no es correcto, díselo al comité.</p>
+    </div>
+    <div style=${{"margin": "0 12px"}}><button class="btn sec" onClick=${() => sb.auth.signOut()}>Cerrar sesión</button></div>
+  </div>`;
+}
+
+/* ---------- Comité: jugadores ---------- */
+function useJugadoresComite(temporada) {
+  const [lista, setLista] = useState(null);
+  const [err, setErr] = useState("");
+  const cargar = useCallback(async () => {
+    if (!temporada) return;
+    const { data, error } = await sb.from("jugadores")
+      .select("*, jugador_temporada(temporada_id, estado, pagado), amarillas(id, temporada_id, fecha, jornada, motivo, anulada, anulada_motivo)")
+      .order("nombre_corto");
+    if (error) return setErr(errTxt(error));
+    setLista((data || []).map((j) => {
+      const jt = (j.jugador_temporada || []).find((x) => x.temporada_id === temporada.id);
+      const am = (j.amarillas || []).filter((a) => a.temporada_id === temporada.id).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+      return { ...j, estado: jt ? jt.estado : null, pagado: jt ? jt.pagado : false, amarillasT: am, nAm: am.filter((a) => !a.anulada).length };
+    }));
+  }, [temporada]);
+  useEffect(() => { cargar(); }, [cargar]);
+  return { lista, err, recargar: cargar };
+}
+
+function Badges({ j }) {
+  return html`<span class="badges">
+    ${j.es_admin && html`<span class="b ad">COMITÉ</span>`}
+    ${j.estado === "espera" && html`<span class="b gr">ESPERA</span>`}
+    ${j.estado === "baja" && html`<span class="b gr">BAJA</span>`}
+    ${!j.estado && html`<span class="b gr">SIN TEMPORADA</span>`}
+    ${j.estado === "activo" && (j.pagado ? html`<span class="b ok">PAGADO</span>` : html`<span class="b no">PENDIENTE</span>`)}
+    ${j.nAm > 0 && html`<span class="b am">${j.nAm} AM</span>`}
+  </span>`;
+}
+
+function ComiteJugadores({ temporada, go }) {
+  const { lista, err, recargar } = useJugadoresComite(temporada);
+  const [q, setQ] = useState("");
+  const [f, setF] = useState("activo");
+  const cuenta = useMemo(() => {
+    const L = lista || [];
+    return { activo: L.filter((j) => j.estado === "activo").length, espera: L.filter((j) => j.estado === "espera").length, baja: L.filter((j) => j.estado === "baja" || !j.estado).length, pend: L.filter((j) => j.estado === "activo" && !j.pagado).length, todos: L.length };
+  }, [lista]);
+  const vis = (lista || []).filter((j) => {
+    if (f === "activo" && j.estado !== "activo") return false;
+    if (f === "espera" && j.estado !== "espera") return false;
+    if (f === "baja" && !(j.estado === "baja" || !j.estado)) return false;
+    if (f === "pend" && !(j.estado === "activo" && !j.pagado)) return false;
+    return norm(`${j.nombre} ${j.nombre_corto} ${j.email} ${j.licencia || ""}`).includes(norm(q));
+  });
+  const F = [["activo", "Activos"], ["espera", "Lista de espera"], ["baja", "Bajas"], ["pend", "Pago pendiente"], ["todos", "Todos"]];
+  return html`<div>
+    <div class="search"><input class="inp" placeholder="Buscar por nombre, email o licencia…" value=${q} onInput=${(e) => setQ(e.target.value)} /></div>
+    <div class="filt">${F.map(([k, l]) => html`<button key=${k} class=${f === k ? "on" : ""} onClick=${() => setF(k)}>${l} ${lista ? cuenta[k] : ""}</button>`)}</div>
+    <div class="btns" style=${{"margin": "0 12px 10px"}}><button class="btn sec small" onClick=${() => go("importar")}>Importar Excel</button><button class="btn sec small" onClick=${() => exportarExcel(lista || [], temporada)}>Exportar Excel</button></div>
+    ${err && html`<div class="err" style=${{"margin": "12px"}}>${err}</div>`}
+    ${!lista && !err ? html`<${Spinner}/>` : html`<div class="list">${vis.length === 0 ? html`<p class="muted center">No hay jugadores en este filtro.</p>` : vis.map((j) => html`<button class="row" key=${j.id} onClick=${() => go("ficha", j.id)}>
+        <span class="av">${iniciales(j.nombre_corto)}</span>
+        <span class="n">${j.nombre_corto}<small>${j.licencia ? "Lic. " + j.licencia : j.email}</small></span>
+        <${Badges} j=${j} /></button>`)}</div>`}
+    <button class="fab" onClick=${() => go("editar", null)}>+ Alta</button>
+  </div>`;
+}
+
+function EditarJugador({ temporada, id, volver, yo }) {
+  const [j, setJ] = useState(null);
+  const [err, setErr] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  useEffect(() => {
+    (async () => {
+      if (!id) return setJ({ nombre: "", nombre_corto: "", email: "", movil: "", licencia: "", es_admin: false, estado: "activo", pagado: false });
+      const { data, error } = await sb.from("jugadores").select("*, jugador_temporada(temporada_id, estado, pagado)").eq("id", id).single();
+      if (error) return setErr(errTxt(error));
+      const jt = (data.jugador_temporada || []).find((x) => x.temporada_id === temporada.id);
+      setJ({ ...data, movil: data.movil || "", licencia: data.licencia || "", estado: jt ? jt.estado : "activo", pagado: jt ? jt.pagado : false });
+    })();
+  }, [id]);
+  if (!j) return err ? html`<div class="err" style=${{"margin": "12px"}}>${err}</div>` : html`<${Spinner}/>`;
+  const set = (k) => (e) => setJ({ ...j, [k]: e && e.target ? e.target.value : e });
+  const guardar = async () => {
+    setErr("");
+    const d = { nombre: j.nombre.trim(), nombre_corto: j.nombre_corto.trim() || j.nombre.trim(), email: j.email.trim().toLowerCase(), movil: j.movil.trim() || null, licencia: j.licencia.trim() || null, es_admin: !!j.es_admin };
+    if (!d.nombre) return setErr("Falta el nombre y apellidos.");
+    if (!emailValido(d.email)) return setErr("El email no es válido.");
+    setGuardando(true);
+    try {
+      let jid = id;
+      if (id) { const { error } = await sb.from("jugadores").update(d).eq("id", id); if (error) throw error; }
+      else { const { data, error } = await sb.from("jugadores").insert(d).select("id").single(); if (error) throw error; jid = data.id; }
+      const { error: e2 } = await sb.from("jugador_temporada").upsert({ jugador_id: jid, temporada_id: temporada.id, estado: j.estado, pagado: !!j.pagado }, { onConflict: "jugador_id,temporada_id" });
+      if (e2) throw e2;
+      volver(true);
+    } catch (e) {
+      setErr(/duplicate|unique/i.test(errTxt(e)) ? "Ya hay un jugador con ese email." : errTxt(e));
+    } finally { setGuardando(false); }
+  };
+  return html`<div style=${{"padding": "0 16px 20px"}}>
+    <label class="l">Nombre y apellidos</label><input class="inp" value=${j.nombre} onInput=${set("nombre")} />
+    <label class="l">Nombre corto (listados y horarios)</label><input class="inp" placeholder="p. ej. Gon Pineda" value=${j.nombre_corto} onInput=${set("nombre_corto")} />
+    <label class="l">Email</label><input class="inp" type="email" autocapitalize="off" value=${j.email} onInput=${set("email")} />
+    <label class="l">Móvil</label><input class="inp" type="tel" value=${j.movil} onInput=${set("movil")} />
+    <label class="l">Nº de licencia</label><input class="inp" value=${j.licencia} onInput=${set("licencia")} />
+    <label class="l">Estado en ${temporada.nombre}</label>
+    <div class="seg">${Object.entries(ESTADOS).map(([k, l]) => html`<button type="button" key=${k} class=${j.estado === k ? "on" : ""} onClick=${() => setJ({ ...j, estado: k })}>${l}</button>`)}</div>
+    <${Toggle} on=${j.pagado} onChange=${(v) => setJ({ ...j, pagado: v })} label=${`Inscripción pagada (${(temporada.reglas && temporada.reglas.cuota) || 150} €)`} />
+    ${j.email === yo.email ? html`<div class="sw"><span>Administrador (comité)</span><span class="muted">Sí · no puedes quitártelo tú</span></div>`
+      : html`<${Toggle} on=${j.es_admin} onChange=${(v) => setJ({ ...j, es_admin: v })} label="Administrador (comité)" />`}
+    <button class="btn" disabled=${guardando} onClick=${guardar}>${guardando ? "Guardando…" : id ? "Guardar cambios" : "Guardar y dar acceso"}</button>
+    ${err && html`<div class="err">${err}</div>`}
+  </div>`;
+}
+
+function Ficha({ temporada, id, go, volver }) {
+  const [j, setJ] = useState(null);
+  const [err, setErr] = useState("");
+  const [modal, setModal] = useState(null);
+  const cargar = useCallback(async () => {
+    const { data, error } = await sb.from("jugadores").select("*, jugador_temporada(temporada_id, estado, pagado), amarillas(*)").eq("id", id).single();
+    if (error) return setErr(errTxt(error));
+    const jt = (data.jugador_temporada || []).find((x) => x.temporada_id === temporada.id);
+    const am = (data.amarillas || []).filter((a) => a.temporada_id === temporada.id).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+    setJ({ ...data, estado: jt ? jt.estado : null, pagado: jt ? jt.pagado : false, am, nAm: am.filter((a) => !a.anulada).length });
+  }, [id]);
+  useEffect(() => { cargar(); }, [cargar]);
+  if (!j) return err ? html`<div class="err" style=${{"margin": "12px"}}>${err}</div>` : html`<${Spinner}/>`;
+
+  const ponerAmarilla = async (jornada, motivo) => {
+    const { error } = await sb.from("amarillas").insert({ jugador_id: j.id, temporada_id: temporada.id, jornada: jornada || null, motivo: motivo || null });
+    if (error) return alert(errTxt(error));
+    setModal(null); cargar();
+  };
+  const anular = async (a, motivo) => {
+    const { error } = await sb.from("amarillas").update({ anulada: true, anulada_motivo: motivo || null }).eq("id", a.id);
+    if (error) return alert(errTxt(error));
+    setModal(null); cargar();
+  };
+  const darBaja = async () => {
+    const { error } = await sb.from("jugador_temporada").upsert({ jugador_id: j.id, temporada_id: temporada.id, estado: "baja", pagado: j.pagado }, { onConflict: "jugador_id,temporada_id" });
+    if (error) return alert(errTxt(error));
+    setModal(null); cargar();
+  };
+
+  return html`<div>
+    <div class="card">
+      <div class="kv"><span>Nombre corto</span><b>${j.nombre_corto}</b></div>
+      <div class="kv"><span>Email</span><b>${j.email}</b></div>
+      <div class="kv"><span>Móvil</span><b>${j.movil || "—"}</b></div>
+      <div class="kv"><span>Licencia</span><b>${j.licencia || "—"}</b></div>
+      <div class="kv"><span>Último hándicap</span><b class="num">${j.ultimo_hcp != null ? String(j.ultimo_hcp).replace(".", ",") : "—"}</b></div>
+      <div class="kv"><span>Estado</span><b>${j.estado ? ESTADOS[j.estado] : "Sin alta en la temporada"}</b></div>
+      <div class="kv"><span>Inscripción</span><b>${j.pagado ? "Pagada" : "Pendiente"}</b></div>
+      <div class="kv"><span>Comité</span><b>${j.es_admin ? "Sí" : "No"}</b></div>
+      <div class="kv"><span>Protección de datos</span><b>${j.acepta_privacidad ? "Aceptada " + fmtFecha(j.acepta_privacidad) : "Aún no ha entrado"}</b></div>
+    </div>
+    <div class="card"><h3>Tarjetas amarillas · ${j.nAm}</h3>
+      ${j.am.length === 0 ? html`<p class="muted">Ninguna en esta temporada.</p>` : j.am.map((a) => html`<div key=${a.id} class=${"hist" + (a.anulada ? " anulada" : "")}>
+          <span>${a.jornada ? a.jornada + " · " : ""}${a.motivo || "Sin motivo"} · ${fmtFecha(a.fecha)}${a.anulada && a.anulada_motivo ? " (anulada: " + a.anulada_motivo + ")" : ""}</span>
+          ${!a.anulada && html`<button class="link" onClick=${() => setModal({ tipo: "anular", a })}>Anular</button>`}</div>`)}
+      <p class="muted">Con 3 amarillas, expulsión de la pool.</p>
+      <button class="btn sec small" onClick=${() => setModal({ tipo: "amarilla" })}>+ Poner amarilla</button>
+    </div>
+    <div class="btns" style=${{"margin": "0 12px 20px"}}>
+      <button class="btn sec" onClick=${() => go("editar", j.id)}>Editar</button>
+      ${j.estado !== "baja" && html`<button class="btn warn sec" onClick=${() => setModal({ tipo: "baja" })}>Dar de baja</button>`}
+    </div>
+    ${modal && html`<${Modal} modal=${modal} j=${j} cerrar=${() => setModal(null)} ponerAmarilla=${ponerAmarilla} anular=${anular} darBaja=${darBaja} />`}
+  </div>`;
+}
+
+function Modal({ modal, j, cerrar, ponerAmarilla, anular, darBaja }) {
+  const [a, setA] = useState(""); const [b, setB] = useState("");
+  return html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && cerrar()}><div class="sheet">
+    ${modal.tipo === "amarilla" && html`<div><h3>Amarilla a ${j.nombre_corto}</h3>
+      <label class="l">Jornada</label><input class="inp" placeholder="p. ej. J14" value=${a} onInput=${(e) => setA(e.target.value)} />
+      <label class="l">Motivo</label><input class="inp" placeholder="p. ej. baja fuera de plazo" value=${b} onInput=${(e) => setB(e.target.value)} />
+      ${j.nAm >= 2 && html`<div class="err">Será su tercera amarilla: supone la expulsión de la pool.</div>`}
+      <button class="btn" onClick=${() => ponerAmarilla(a, b)}>Poner amarilla</button></div>`}
+    ${modal.tipo === "anular" && html`<div><h3>Anular amarilla</h3>
+      <label class="l">Motivo (causa justificada)</label><input class="inp" value=${b} onInput=${(e) => setB(e.target.value)} />
+      <button class="btn" onClick=${() => anular(modal.a, b)}>Anular</button></div>`}
+    ${modal.tipo === "baja" && html`<div><h3>¿Dar de baja a ${j.nombre_corto}?</h3>
+      <p class="muted">Dejará de poder entrar en la app. Sus resultados se conservan. Puedes volver a activarlo desde Editar.</p>
+      <button class="btn warn" onClick=${darBaja}>Dar de baja</button></div>`}
+    <button class="btn sec" onClick=${cerrar}>Cancelar</button>
+  </div></div>`;
+}
+
+/* ---------- Comité: Excel ---------- */
+const COLS = ["Nombre y apellidos", "Nombre corto", "Email", "Móvil", "Nº licencia", "Estado", "Inscripción pagada", "Administrador", "Amarillas"];
+
+function exportarExcel(lista, temporada) {
+  const filas = lista.map((j) => [j.nombre, j.nombre_corto, j.email, j.movil || "", j.licencia || "", j.estado ? ESTADOS[j.estado] : "", j.pagado ? "Sí" : "No", j.es_admin ? "Sí" : "No", j.nAm]);
+  const ws = XLSX.utils.aoa_to_sheet([COLS, ...filas]);
+  ws["!cols"] = [32, 26, 30, 16, 16, 16, 18, 14, 11].map((w) => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Jugadores");
+  XLSX.writeFile(wb, `Gambipool_jugadores_${temporada.anio}.xlsx`);
+}
+
+const siNo = (v) => /^(s[ií]|si|yes|x|1|true)$/i.test(String(v || "").trim());
+const estadoDe = (v) => { const s = norm(v || ""); if (s.startsWith("lista") || s.startsWith("espera")) return "espera"; if (s.startsWith("baja")) return "baja"; return "activo"; };
+
+function Importar({ temporada, volver, yo }) {
+  const [filas, setFilas] = useState(null);
+  const [err, setErr] = useState("");
+  const [res, setRes] = useState(null);
+  const [trabajando, setTrabajando] = useState(false);
+
+  const leer = async (e) => {
+    setErr(""); setRes(null);
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets["Jugadores"] || wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
+      const col = (r, n) => { const k = Object.keys(r).find((x) => norm(x).startsWith(norm(n))); return k ? String(r[k]).trim() : ""; };
+      const out = raw.map((r) => ({
+        nombre: col(r, "Nombre y apellidos"), nombre_corto: col(r, "Nombre corto"), email: col(r, "Email").toLowerCase(),
+        movil: col(r, "Móvil") || col(r, "Movil"), licencia: col(r, "Nº licencia") || col(r, "licencia"),
+        estado: estadoDe(col(r, "Estado")), pagado: siNo(col(r, "Inscripción pagada") || col(r, "Inscripcion pagada")),
+        adminTxt: col(r, "Administrador"), amarillas: parseInt(col(r, "Amarillas"), 10) || 0,
+      })).filter((r) => r.nombre || r.nombre_corto || r.email);
+      out.forEach((r) => { r.problema = !emailValido(r.email) ? "Sin email válido" : !(r.nombre || r.nombre_corto) ? "Sin nombre" : ""; });
+      setFilas(out);
+    } catch (e2) { setErr("No he podido leer el archivo: " + errTxt(e2)); }
+  };
+
+  const importar = async () => {
+    setTrabajando(true); setErr("");
+    const validas = filas.filter((r) => !r.problema);
+    let ok = 0; const fallos = [];
+    for (const r of validas) {
+      try {
+        const d = { nombre: r.nombre || r.nombre_corto, nombre_corto: r.nombre_corto || r.nombre, email: r.email, movil: r.movil || null, licencia: r.licencia || null };
+        // Administrador: solo se cambia si la celda tiene valor, y nunca se quita al propio usuario
+        if (r.adminTxt && !(r.email === yo.email && !siNo(r.adminTxt))) d.es_admin = siNo(r.adminTxt);
+        const { data, error } = await sb.from("jugadores").upsert(d, { onConflict: "email" }).select("id").single();
+        if (error) throw error;
+        const { error: e2 } = await sb.from("jugador_temporada").upsert({ jugador_id: data.id, temporada_id: temporada.id, estado: r.estado, pagado: r.pagado }, { onConflict: "jugador_id,temporada_id" });
+        if (e2) throw e2;
+        if (r.amarillas > 0) {
+          const { count } = await sb.from("amarillas").select("id", { count: "exact", head: true }).eq("jugador_id", data.id).eq("temporada_id", temporada.id).eq("anulada", false);
+          const faltan = r.amarillas - (count || 0);
+          for (let i = 0; i < faltan; i++) await sb.from("amarillas").insert({ jugador_id: data.id, temporada_id: temporada.id, motivo: "Cargada desde Excel" });
+        }
+        ok++;
+      } catch (e3) { fallos.push(`${r.nombre_corto || r.email}: ${errTxt(e3)}`); }
+    }
+    setTrabajando(false); setRes({ ok, fallos, omitidas: filas.length - validas.length });
+  };
+
+  return html`<div style=${{"padding": "0 16px 20px"}}>
+    <p class="muted">Usa la plantilla "Gambipool_plantilla_jugadores.xlsx". Si un email ya existe, se actualizan sus datos; si no, se da de alta. Los jugadores sin email se saltan.</p>
+    <input class="inp" type="file" accept=".xlsx,.xls,.csv" onChange=${leer} />
+    ${err && html`<div class="err">${err}</div>`}
+    ${filas && !res && html`<div>
+      <p><b>${filas.filter((r) => !r.problema).length}</b> jugadores listos para importar${filas.some((r) => r.problema) ? html`, <b>${filas.filter((r) => r.problema).length}</b> se saltarán` : ""}.</p>
+      <div style=${{"overflowX": "auto"}}><table class="prev"><thead><tr><th>Nombre corto</th><th>Email</th><th>Estado</th><th></th></tr></thead><tbody>
+        ${filas.map((r, i) => html`<tr key=${i} style=${r.problema ? { color: "var(--warn)" } : null}><td>${r.nombre_corto || r.nombre}</td><td>${r.email || "—"}</td><td>${ESTADOS[r.estado]}</td><td>${r.problema}</td></tr>`)}
+      </tbody></table></div>
+      <button class="btn" disabled=${trabajando || !filas.some((r) => !r.problema)} onClick=${importar}>${trabajando ? "Importando…" : "Importar"}</button></div>`}
+    ${res && html`<div><div class="ok">Importados o actualizados: <b>${res.ok}</b>${res.omitidas ? ` · Saltados: ${res.omitidas}` : ""}</div>
+      ${res.fallos.length > 0 && html`<div class="err">${res.fallos.map((f) => html`<div key=${f}>${f}</div>`)}</div>`}
+      <button class="btn sec" onClick=${() => volver(true)}>Volver al listado</button></div>`}
+  </div>`;
+}
+
+/* ---------- App ---------- */
+function App() {
+  const [session, setSession] = useState(undefined);
+  const [yo, setYo] = useState(undefined);
+  const [temporada, setTemporada] = useState(null);
+  const [tab, setTab] = useState("inicio");
+  const [pila, setPila] = useState([]); // pantallas apiladas [{v, p}]
+  const [errGlobal, setErrGlobal] = useState("");
+
+  useEffect(() => {
+    sb.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setSession(s || null));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const cargarYo = useCallback(async () => {
+    const { data, error } = await sb.rpc("mi_jugador");
+    if (error) { setErrGlobal(errTxt(error)); setYo(null); return; }
+    const y = Array.isArray(data) ? data[0] : data;
+    setYo(y && y.id ? y : null);
+    const { data: t } = await sb.from("temporadas").select("*").eq("activa", true).maybeSingle();
+    setTemporada(t || null);
+  }, []);
+
+  useEffect(() => { if (session) cargarYo(); else { setYo(undefined); setPila([]); } }, [session]);
+
+  if (session === undefined) return html`<${Spinner}/>`;
+  if (!session) return html`<${Login}/>`;
+  if (yo === undefined) return html`<${Spinner}/>`;
+  if (!yo) return html`<div class="login"><div class="logo">Gambipool</div>
+      <div class="err">${errGlobal || "Tu email ya no tiene acceso a la pool. Habla con el comité."}</div>
+      <button class="btn sec" onClick=${() => sb.auth.signOut()}>Salir</button></div>`;
+  if (!yo.acepta_privacidad) return html`<${Privacidad} yo=${yo} onOk=${cargarYo}/>`;
+
+  const go = (v, p) => setPila([...pila, { v, p }]);
+  const atras = () => setPila(pila.slice(0, -1));
+  const top = pila[pila.length - 1];
+  const nomT = temporada ? temporada.nombre : "Gambipool";
+
+  let cab, cuerpo, conNav = true;
+  if (top) {
+    conNav = false;
+    const T = { directorio: "Jugadores", perfil: "Mi perfil", comite: "Jugadores", editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel" };
+    const sub = ["comite", "editar", "ficha", "importar"].includes(top.v) ? "Comité · " + nomT : nomT;
+    cab = html`<${Cabecera} sub=${sub} titulo=${T[top.v]} onBack=${atras} />`;
+    const volverRecargando = () => atras();
+    if (top.v === "directorio") cuerpo = html`<${Directorio}/>`;
+    else if (top.v === "perfil") cuerpo = html`<${Perfil} yo=${yo}/>`;
+    else if (!yo.es_admin) cuerpo = html`<div class="err" style=${{"margin": "12px"}}>Solo para el comité.</div>`;
+    else if (!temporada) cuerpo = html`<div class="err" style=${{"margin": "12px"}}>No hay temporada activa.</div>`;
+    else if (top.v === "comite") cuerpo = html`<${ComiteJugadores} temporada=${temporada} go=${go}/>`;
+    else if (top.v === "editar") cuerpo = html`<${EditarJugador} temporada=${temporada} id=${top.p} yo=${yo} volver=${volverRecargando}/>`;
+    else if (top.v === "ficha") cuerpo = html`<${Ficha} key=${top.p + pila.length} temporada=${temporada} id=${top.p} go=${go} volver=${volverRecargando}/>`;
+    else if (top.v === "importar") cuerpo = html`<${Importar} temporada=${temporada} yo=${yo} volver=${volverRecargando}/>`;
+  } else {
+    const T = { inicio: "Hola, " + yo.nombre_corto.split(" ")[0], calendario: "Calendario", tarjeta: "Tarjeta", clasificacion: "Clasificación", pool: "La Pool" };
+    cab = html`<${Cabecera} sub=${nomT} titulo=${T[tab]} admin=${yo.es_admin} onComite=${() => go("comite")} />`;
+    if (tab === "inicio") cuerpo = html`<${Inicio} yo=${yo} temporada=${temporada}/>`;
+    else if (tab === "pool") cuerpo = html`<${Pool} yo=${yo} go=${go}/>`;
+    else cuerpo = html`<${Proximamente} que=${T[tab]}/>`;
+  }
+  return html`<${React.Fragment}>${cab}<main key=${pila.length + tab}>${cuerpo}</main>${conNav && html`<${Nav} tab=${tab} setTab=${setTab}/>`}</${React.Fragment}>`;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(html`<${App}/>`);
