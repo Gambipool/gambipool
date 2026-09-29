@@ -25,7 +25,7 @@ button,input,select{font:inherit}
 .tabs button{flex:1;background:none;border:0;color:var(--tabdim);font-weight:600;font-size:14px;padding:10px 0;border-bottom:3px solid transparent;cursor:pointer}
 .tabs button.on{color:#fff;border-color:var(--acc)}
 
-main{flex:1;padding-bottom:90px}
+main{flex:1;padding-bottom:calc(80px + env(safe-area-inset-bottom))}
 .card{background:var(--card);margin:12px;border-radius:6px;border:1px solid var(--line);padding:14px}
 .card h3{font-family:var(--serif);margin:0 0 6px;font-size:18px}
 .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:3px;background:var(--soft);color:var(--hd)}
@@ -85,13 +85,13 @@ label.l{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06
 .kv b{text-align:right;word-break:break-word}
 .hist{font-size:14px;padding:8px 0;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;gap:8px}
 .hist.anulada{color:#9a978a;text-decoration:line-through}
-.fab{position:fixed;right:max(16px,calc(50% - 264px));bottom:calc(84px + env(safe-area-inset-bottom));background:var(--hd);color:#fff;border-radius:999px;padding:13px 20px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.2);border:0;cursor:pointer;z-index:6}
+.fab{position:fixed;right:max(16px,calc(50% - 264px));bottom:calc(20px + env(safe-area-inset-bottom));background:var(--hd);color:#fff;border-radius:999px;padding:13px 20px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.2);border:0;cursor:pointer;z-index:6}
 table.prev{width:100%;border-collapse:collapse;font-size:13px}
 table.prev td,table.prev th{padding:6px 4px;border-bottom:1px solid var(--line2);text-align:left}
 
 /* Barra inferior */
-.nav{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;padding:8px 6px calc(10px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);max-width:560px;margin:0 auto;z-index:6}
-.nav button{background:none;border:0;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);cursor:pointer;padding:4px 6px;min-width:56px}
+.nav{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;padding:5px 6px max(6px, env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);max-width:560px;margin:0 auto;z-index:6}
+.nav button{background:none;border:0;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);cursor:pointer;padding:3px 6px 0;min-width:56px}
 .nav button.on{color:var(--hd);font-weight:700}
 .nav svg{width:22px;height:22px}
 
