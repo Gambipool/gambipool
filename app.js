@@ -31,7 +31,7 @@ const I = {
 function Cabecera({ sub, titulo, onBack, backTxt = "Volver", admin, onComite }) {
   return html`<header class="hd">
     ${onBack && html`<button class="back" onClick=${onBack}>‹ ${backTxt}</button>`}
-    <small>${sub}</small><h1>${titulo}</h1>
+    ${sub && html`<small>${sub}</small>`}<h1>${titulo}</h1>
     ${admin && html`<button class="lock" aria-label="Panel del comité" onClick=${onComite}>${I.lock}</button>`}
   </header>`;
 }
@@ -450,6 +450,8 @@ function App() {
   const [session, setSession] = useState(undefined);
   const [yo, setYo] = useState(undefined);
   const [temporada, setTemporada] = useState(null);
+  const [jornadas, setJornadas] = useState([]);
+  const [barras, setBarras] = useState([]);
   const [tab, setTab] = useState("inicio");
   const [pila, setPila] = useState([]); // pantallas apiladas [{v, p}]
   const [errGlobal, setErrGlobal] = useState("");
@@ -460,6 +462,15 @@ function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  const cargarJornadas = useCallback(async (t) => {
+    const tt = t || temporada; if (!tt) return;
+    const [{ data: js }, { data: bs }] = await Promise.all([
+      sb.from("jornadas").select("*").eq("temporada_id", tt.id).order("fecha"),
+      sb.from("barras").select("*"),
+    ]);
+    setJornadas(js || []); setBarras(bs || []);
+  }, [temporada]);
+
   const cargarYo = useCallback(async () => {
     const { data, error } = await sb.rpc("mi_jugador");
     if (error) { setErrGlobal(errTxt(error)); setYo(null); return; }
@@ -467,6 +478,7 @@ function App() {
     setYo(y && y.id ? y : null);
     const { data: t } = await sb.from("temporadas").select("*").eq("activa", true).maybeSingle();
     setTemporada(t || null);
+    if (t) await cargarJornadas(t);
   }, []);
 
   useEffect(() => { if (session) cargarYo(); else { setYo(undefined); setPila([]); } }, [session]);
@@ -479,34 +491,45 @@ function App() {
       <button class="btn sec" onClick=${() => sb.auth.signOut()}>Salir</button></div>`;
   if (!yo.acepta_privacidad) return html`<${Privacidad} yo=${yo} onOk=${cargarYo}/>`;
 
-  const go = (v, p) => setPila([...pila, { v, p }]);
-  const atras = () => setPila(pila.slice(0, -1));
+  const go = (v, p) => { setPila([...pila, { v, p }]); window.scrollTo(0, 0); };
+  const atras = () => { setPila(pila.slice(0, -1)); cargarJornadas(); };
   const top = pila[pila.length - 1];
-  const nomT = temporada ? temporada.nombre : "Gambipool";
+  const ctx = { yo, temporada, jornadas, barras, go, atras, recargar: () => cargarJornadas() };
+  const jTit = (id) => { const j = jornadas.find((x) => x.id === id); return j ? `${nombreJ(j)} · ${fechaJ(j)}` : "Jornada"; };
 
   let cab, cuerpo, conNav = true;
   if (top) {
     conNav = false;
-    const T = { directorio: "Jugadores", perfil: "Mi perfil", comite: "Jugadores", editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel" };
-    const sub = ["comite", "editar", "ficha", "importar"].includes(top.v) ? "Comité · " + nomT : nomT;
+    const T = { directorio: "Jugadores", perfil: "Mi perfil", comite: "Jugadores", "comite-jugadores": "Jugadores", "comite-hub": "Panel del comité",
+      "comite-calendario": "Calendario", "comite-avisos": "Avisos", "editar-jornada": top.p ? "Editar " + (jornadas.find((x) => x.id === top.p) ? etiquetaJ(jornadas.find((x) => x.id === top.p)) : "jornada") : "Nueva jornada",
+      gestion: top.p ? jTit(top.p) : "", jornada: top.p ? jTit(top.p) : "", inscribir: "Inscripción",
+      editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel" };
+    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
     cab = html`<${Cabecera} sub=${sub} titulo=${T[top.v]} onBack=${atras} />`;
     const volverRecargando = () => atras();
     if (top.v === "directorio") cuerpo = html`<${Directorio}/>`;
     else if (top.v === "perfil") cuerpo = html`<${Perfil} yo=${yo}/>`;
-    else if (!yo.es_admin) cuerpo = html`<div class="err" style=${{"margin": "12px"}}>Solo para el comité.</div>`;
-    else if (!temporada) cuerpo = html`<div class="err" style=${{"margin": "12px"}}>No hay temporada activa.</div>`;
-    else if (top.v === "comite") cuerpo = html`<${ComiteJugadores} temporada=${temporada} go=${go}/>`;
+    else if (!temporada) cuerpo = html`<div class="err" style=${{ margin: "12px" }}>No hay temporada activa.</div>`;
+    else if (top.v === "jornada") cuerpo = html`<${FichaJornada} key=${top.p} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "inscribir") cuerpo = html`<${Inscribir} ctx=${ctx} id=${top.p}/>`;
+    else if (!yo.es_admin) cuerpo = html`<div class="err" style=${{ margin: "12px" }}>Solo para el comité.</div>`;
+    else if (top.v === "comite-hub") cuerpo = html`<${ComiteHub} ctx=${ctx}/>`;
+    else if (top.v === "comite" || top.v === "comite-jugadores") cuerpo = html`<${ComiteJugadores} temporada=${temporada} go=${go}/>`;
+    else if (top.v === "comite-calendario") cuerpo = html`<${ComiteCalendario} ctx=${ctx}/>`;
+    else if (top.v === "comite-avisos") cuerpo = html`<${ComiteAvisos} ctx=${ctx}/>`;
+    else if (top.v === "editar-jornada") cuerpo = html`<${EditarJornada} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "gestion") cuerpo = html`<${GestionJornada} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "editar") cuerpo = html`<${EditarJugador} temporada=${temporada} id=${top.p} yo=${yo} volver=${volverRecargando}/>`;
     else if (top.v === "ficha") cuerpo = html`<${Ficha} key=${top.p + pila.length} temporada=${temporada} id=${top.p} go=${go} volver=${volverRecargando}/>`;
     else if (top.v === "importar") cuerpo = html`<${Importar} temporada=${temporada} yo=${yo} volver=${volverRecargando}/>`;
   } else {
     const T = { inicio: "Hola, " + yo.nombre_corto.split(" ")[0], calendario: "Calendario", tarjeta: "Tarjeta", clasificacion: "Clasificación", pool: "La Pool" };
-    cab = html`<${Cabecera} sub=${nomT} titulo=${T[tab]} admin=${yo.es_admin} onComite=${() => go("comite")} />`;
-    if (tab === "inicio") cuerpo = html`<${Inicio} yo=${yo} temporada=${temporada}/>`;
+    cab = html`<${Cabecera} sub="" titulo=${T[tab]} admin=${yo.es_admin} onComite=${() => go("comite-hub")} />`;
+    if (!temporada) cuerpo = html`<div class="card"><p class="muted">No hay temporada activa.</p></div>`;
+    else if (tab === "inicio") cuerpo = html`<${Inicio2} ctx=${ctx}/>`;
+    else if (tab === "calendario") cuerpo = html`<${Calendario} ctx=${ctx}/>`;
     else if (tab === "pool") cuerpo = html`<${Pool} yo=${yo} go=${go}/>`;
     else cuerpo = html`<${Proximamente} que=${T[tab]}/>`;
   }
-  return html`<${React.Fragment}>${cab}<main key=${pila.length + tab}>${cuerpo}</main>${conNav && html`<${Nav} tab=${tab} setTab=${setTab}/>`}</${React.Fragment}>`;
+  return html`<${React.Fragment}>${cab}<main key=${pila.length + tab + (top ? top.v + top.p : "")}>${cuerpo}</main>${conNav && html`<${Nav} tab=${tab} setTab=${setTab}/>`}</${React.Fragment}>`;
 }
-
-ReactDOM.createRoot(document.getElementById("root")).render(html`<${App}/>`);
