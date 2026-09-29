@@ -146,3 +146,6 @@ table.prev td,table.prev th{padding:6px 4px;border-bottom:1px solid var(--line2)
 textarea.inp{resize:vertical;font-family:inherit}
 select.inp{appearance:auto}
 .pz{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:14px}
+
+/* bola colocada (Inicio) */
+.bola{margin:0 0 8px;font-weight:600;color:var(--hd)}

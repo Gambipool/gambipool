@@ -281,6 +281,7 @@ function FichaJornada({ ctx, id }) {
       <div class="card"><span class=${"tag" + (e.k === "abierta" ? "" : " gr")}>${e.txt}</span>
         <div class="kv" style=${{ marginTop: "8px" }}><span>Campo</span><b>${j.campo}</b></div>
         <div class="kv"><span>Barras</span><b>${cap(j.barras || "—")}</b></div>
+        <div class="kv"><span>Bola</span><b>${j.bola_colocada ? "Se coloca" : "No se coloca"}</b></div>
         <div class="kv"><span>Tipo</span><b>${TIPOS[j.tipo]} · ${j.doblar ? "puntos dobles" : "puntos normales"}</b></div>
         <div class="kv"><span>Inscritos</span><b class="num">${ins.length}</b></div>
         ${mia && html`<div class="kv"><span>Tu inscripción</span><b>${mia.franja ? (mia.otra_hora ? "Otra hora " : "Franja ") + hmBonito(hm(mia.franja)) : "Inscrito"} · HJ ${mia.hcp_juego ?? "—"}</b></div>`}
@@ -338,7 +339,7 @@ function Inicio2({ ctx }) {
     const { mia, parts, ins } = d, jj = d.j, e = estadoJ(jj);
     const miP = mia && parts.find((p) => p.id === mia.partida_id);
     const comp = miP ? ins.filter((x) => x.partida_id === miP.id) : [];
-    const titulo = html`<h3 style=${{ marginTop: "8px" }}>${nombreJ(jj)} · ${fechaJ(jj)}</h3><p class="muted" style=${{ margin: "0 0 6px" }}>${jj.campo} · ${cap(jj.barras || "")}${jj.tipo === "major" ? " · Major" : ""}</p>`;
+    const titulo = html`<h3 style=${{ marginTop: "8px" }}>${nombreJ(jj)} · ${fechaJ(jj)}</h3><p class="muted" style=${{ margin: "0 0 6px" }}>${jj.campo} · ${cap(jj.barras || "")}${jj.tipo === "major" ? " · Major" : ""}</p><p class="bola">${jj.bola_colocada ? "La bola se coloca" : "La bola no se coloca"}</p>`;
     const verIns = html`<button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver inscritos y plazos</button>`;
     if (e.k === "hoy") tarjeta = html`<div class="card"><span class="tag">Hoy se juega</span>${titulo}
       ${miP && miP.salida_hora ? html`<div class="kv"><span>Tu salida</span><b>${hmBonito(hm(miP.salida_hora))} · Tee ${miP.salida_tee}</b></div>` : null}
@@ -393,7 +394,7 @@ function ComiteCalendario({ ctx }) {
 function EditarJornada({ ctx, id }) {
   const { temporada, jornadas, recargar, atras } = ctx;
   const orig = id ? jornadas.find((x) => x.id === id) : null;
-  const [j, setJ] = useState(orig ? { ...orig } : { tipo: "jornada", fecha: "", fecha_fin: "", campo: "Real Guadalhorce", barras: "blancas", doblar: false, numero: "" });
+  const [j, setJ] = useState(orig ? { ...orig } : { tipo: "jornada", fecha: "", fecha_fin: "", campo: "Real Guadalhorce", barras: "blancas", doblar: false, bola_colocada: false, numero: "" });
   const [err, setErr] = useState(""); const [modal, setModal] = useState(null); const [motivo, setMotivo] = useState("");
   const set = (k, v) => setJ({ ...j, [k]: v });
   const guarda = async (cambios, avisoTxt) => {
@@ -407,11 +408,13 @@ function EditarJornada({ ctx, id }) {
     setErr("");
     if (!j.fecha) return setErr("Falta la fecha.");
     const d = { numero: j.numero === "" || j.numero == null ? null : +j.numero, tipo: j.tipo, fecha: j.fecha, fecha_fin: j.fecha_fin || null, campo: j.campo || "Real Guadalhorce",
-      barras: ["ryder", "sustitucion"].includes(j.tipo) ? null : j.barras, doblar: !!j.doblar, cr: j.cr === "" ? null : j.cr ?? null, sr: j.sr === "" ? null : j.sr ?? null, par: j.par === "" ? null : j.par ?? null };
+      barras: ["ryder", "sustitucion"].includes(j.tipo) ? null : j.barras, doblar: !!j.doblar, bola_colocada: !!j.bola_colocada, cr: j.cr === "" ? null : j.cr ?? null, sr: j.sr === "" ? null : j.sr ?? null, par: j.par === "" ? null : j.par ?? null };
     ["abre", "cierre", "horario_at", "reserva", "baja_hasta"].forEach((k) => (d[k] = j[k] || null));
     if (orig && orig.fecha !== j.fecha) ["abre", "cierre", "horario_at", "reserva", "baja_hasta"].forEach((k) => (d[k] = null)); // la fecha cambió: plazos recalculados
     const q = id ? sb.from("jornadas").update(d).eq("id", id) : sb.from("jornadas").insert({ ...d, temporada_id: temporada.id });
     const { error } = await q; if (error) return setErr(errTxt(error));
+    if (orig && !!orig.bola_colocada !== !!j.bola_colocada && inscribible(orig))
+      await sb.from("avisos").insert({ temporada_id: temporada.id, jornada_id: id, tipo: "comite", texto: `${nombreJ(orig)}: ${j.bola_colocada ? "la bola se coloca" : "la bola no se coloca"}.` });
     await recargar(); atras();
   };
   const sust = jornadas.filter((x) => x.tipo === "sustitucion" && x.fecha >= hoyMadrid());
@@ -434,6 +437,7 @@ function EditarJornada({ ctx, id }) {
       ${j.campo !== "Real Guadalhorce" && html`<div><p class="muted">Otro campo: pon su Course Rating, Slope y Par de esas barras para calcular el hándicap de juego.</p>
         <div class="btns"><input class="inp" placeholder="CR (72,1)" value=${j.cr ?? ""} onInput=${(e) => set("cr", e.target.value.replace(",", "."))}/><input class="inp" placeholder="Slope" value=${j.sr ?? ""} onInput=${(e) => set("sr", e.target.value)}/><input class="inp" placeholder="Par" value=${j.par ?? ""} onInput=${(e) => set("par", e.target.value)}/></div></div>`}
       <${Toggle} on=${!!j.doblar} onChange=${(v) => set("doblar", v)} label="Doblar puntos de clasificación" />
+      <${Toggle} on=${!!j.bola_colocada} onChange=${(v) => set("bola_colocada", v)} label="La bola se coloca" />
       ${id && html`<div><label class="l">Plazos</label>
         ${plazo("abre", "Abre inscripción")}${plazo("cierre", "Cierre inscripción")}${plazo("horario_at", "Horario")}${plazo("reserva", "Reserva club")}${plazo("baja_hasta", "Baja sin sanción")}
         <button type="button" class="link" onClick=${() => setJ({ ...j, abre: null, cierre: null, horario_at: null, reserva: null, baja_hasta: null })}>Recalcular plazos según la fecha</button></div>`}
