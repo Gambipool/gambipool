@@ -423,6 +423,17 @@ function EditarJornada({ ctx, id }) {
     await recargar(); atras();
   };
   const sust = jornadas.filter((x) => x.tipo === "sustitucion" && x.fecha >= hoyMadrid());
+  const eliminar = async () => {
+    setErr("");
+    const { count } = await sb.from("inscripciones").select("id", { count: "exact", head: true }).eq("jornada_id", id).eq("estado", "inscrito");
+    const txt = orig.cerrada ? `La ${nombreJ(orig)} tiene resultados y puntos. Si la eliminas, se borran y el ranking cambia. ¿Eliminarla?`
+      : count ? `La ${nombreJ(orig)} tiene ${count} inscrito(s). Se borrarán sus inscripciones, partidas y tarjetas. ¿Eliminarla?` : `¿Eliminar ${inscribible(orig) ? "la " + nombreJ(orig) : "esta fecha"} del calendario?`;
+    if (!confirm(txt)) return;
+    if ((orig.cerrada || count) && !confirm("Esta acción no se puede deshacer. ¿Seguro?")) return;
+    const { error } = await sb.from("jornadas").delete().eq("id", id);
+    if (error) return setErr(errTxt(error));
+    await recargar(); atras();
+  };
   const mover = async (s) => {
     const { error } = await sb.from("jornadas").update({ fecha: s.fecha, fecha_fin: null, abre: null, cierre: null, horario_at: null, reserva: null, baja_hasta: null }).eq("id", id);
     if (error) return setErr(errTxt(error));
@@ -453,7 +464,7 @@ function EditarJornada({ ctx, id }) {
       ${sust.length > 0 && html`<button class="btn sec" onClick=${() => setModal("mover")}>Mover a sustitución</button>`}
       ${j.estado === "suspendida" ? html`<button class="btn sec" onClick=${() => guarda({ estado: "programada", motivo: null }, `La ${nombreJ(orig)} vuelve a estar programada.`)}>Reactivar</button>`
         : html`<button class="btn warn sec" onClick=${() => setModal("susp")}>Suspender</button>`}</div>`}
-    ${id && !inscribible(j) && html`<button class="btn warn sec" onClick=${async () => { if (!confirm("¿Eliminar esta fecha del calendario?")) return; await sb.from("jornadas").delete().eq("id", id); await recargar(); atras(); }}>Eliminar del calendario</button>`}
+    ${id && html`<button class="btn warn sec" onClick=${eliminar}>Eliminar del calendario</button>`}
     ${modal === "mover" && html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && setModal(null)}><div class="sheet"><h3>Mover ${nombreJ(orig)} a una fecha de sustitución</h3>
       <p class="muted">Se mantienen tipo, barras e inscritos. Los plazos se recalculan con la nueva fecha y se avisa a todos.</p>
       ${sust.map((s) => html`<button key=${s.id} class="btn sec" onClick=${() => mover(s)}>${fmtDiaLargo(s.fecha)}</button>`)}
