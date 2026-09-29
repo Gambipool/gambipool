@@ -343,7 +343,11 @@ function Inicio2({ ctx }) {
     const verIns = html`<button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver inscritos y plazos</button>`;
     if (e.k === "hoy") tarjeta = html`<div class="card"><span class="tag">Hoy se juega</span>${titulo}
       ${miP && miP.salida_hora ? html`<div class="kv"><span>Tu salida</span><b>${hmBonito(hm(miP.salida_hora))} · Tee ${miP.salida_tee}</b></div>` : null}
-      <p class="muted">La tarjeta y el directo llegan en el siguiente apartado.</p></div>`;
+      ${miP && html`<div class="kv"><span>Marcador</span><b>${miP.marcador_id ? ((ins.find((x) => x.jugador_id === miP.marcador_id) || {}).nombre_corto || "Comité") : "Aún nadie"}</b></div>`}
+      ${miP && comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">HJ ${x.hcp_juego ?? "—"}</span></div>`)}
+      ${miP && !miP.marcador_id && html`<p class="muted" style=${{ margin: "8px 0 0" }}>El primero de la partida que abra la tarjeta será el marcador.</p>`}
+      ${miP && html`<button class="btn" onClick=${() => ctx.setTab("tarjeta")}>Abrir tarjeta</button>`}
+      <button class="btn sec" onClick=${() => ctx.setTab("clasificacion")}>Ver el directo</button></div>`;
     else if (!mia && e.k === "antes") tarjeta = html`<div class="card"><span class="tag gr">Próxima jornada</span>${titulo}<div class="kv"><span>Abre la inscripción</span><b>${fmtPlazo(jj.abre)}</b></div>${verIns}</div>`;
     else if (!mia && e.k === "abierta") tarjeta = html`<div class="card"><span class="tag">Inscripción abierta</span>${titulo}
       <div class="kv"><span>Cierra</span><b>${fmtPlazo(jj.cierre)}</b></div><div class="kv"><span>Inscritos</span><b class="num">${ins.length}</b></div>
@@ -368,7 +372,8 @@ function Inicio2({ ctx }) {
       <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las salidas</button>
       <button class="btn warn sec" onClick=${() => setModal("baja")}>Darme de baja</button></div>`;
   }
-  return html`<div>${tarjeta}
+  const verResultado = !(j && d && estadoJ(d.j).k === "hoy");
+  return html`<div>${verResultado && html`<${TuResultado} ctx=${ctx}/>`}${tarjeta}
     ${avisos.length > 0 && html`<div class="card"><h3>Avisos</h3>${avisos.map((a) => html`<div key=${a.id} class="hist"><span>${a.texto}</span><span class="muted" style=${{ whiteSpace: "nowrap" }}>${fmtAviso(a.creado)}</span></div>`)}</div>`}
     ${modal === "baja" && d && html`<${ModalBaja} j=${d.j} cerrar=${() => setModal(null)} hecho=${() => { setModal(null); cargar(); }}/>`}
     ${modal && modal.salida && html`<${ModalSalida} p=${modal.salida} cerrar=${() => setModal(null)} hecho=${() => { setModal(null); cargar(); }}/>`}
@@ -386,7 +391,7 @@ function ComiteCalendario({ ctx }) {
   const hoy = hoyMadrid();
   const prox = jornadas.filter((j) => fin(j) >= hoy), pas = jornadas.filter((j) => fin(j) < hoy).reverse();
   const fila = (j) => html`<div class="edrow" key=${j.id}><span>${fin(j) < hoy ? html`<span class="muted">${etiquetaJ(j)} · ${fechaJ(j)}</span>` : html`<span><b>${etiquetaJ(j)}</b> · ${fechaJ(j)} · ${TIPOS[j.tipo]}${j.estado === "suspendida" ? " · SUSPENDIDA" : ""}</span>`}</span>
-    <span style=${{ display: "flex", gap: "14px" }}>${inscribible(j) && html`<button class="link" onClick=${() => go("gestion", j.id)}>Gestionar</button>`}<button class="link" onClick=${() => go("editar-jornada", j.id)}>Editar</button></span></div>`;
+    <span style=${{ display: "flex", gap: "14px" }}>${inscribible(j) && j.fecha <= hoy && html`<button class="link" onClick=${() => go("comite-tarjetas", j.id)}>Tarjetas</button>`}${inscribible(j) && html`<button class="link" onClick=${() => go("gestion", j.id)}>Gestionar</button>`}<button class="link" onClick=${() => go("editar-jornada", j.id)}>Editar</button></span></div>`;
   return html`<div><div style=${{ padding: "12px 12px 0" }}><button class="btn sec small" onClick=${() => go("editar-jornada", null)}>+ Añadir jornada</button></div>
     <div class="mes">Próximas</div>${prox.map(fila)}<div class="mes">Jugadas</div>${pas.map(fila)}</div>`;
 }

@@ -494,7 +494,7 @@ function App() {
   const go = (v, p) => { setPila([...pila, { v, p }]); window.scrollTo(0, 0); };
   const atras = () => { setPila(pila.slice(0, -1)); cargarJornadas(); };
   const top = pila[pila.length - 1];
-  const ctx = { yo, temporada, jornadas, barras, go, atras, recargar: () => cargarJornadas() };
+  const ctx = { yo, temporada, jornadas, barras, go, atras, tab, setTab, recargar: () => cargarJornadas() };
   const jTit = (id) => { const j = jornadas.find((x) => x.id === id); return j ? `${nombreJ(j)} · ${fechaJ(j)}` : "Jornada"; };
 
   let cab, cuerpo, conNav = true;
@@ -503,8 +503,10 @@ function App() {
     const T = { directorio: "Jugadores", perfil: "Mi perfil", comite: "Jugadores", "comite-jugadores": "Jugadores", "comite-hub": "Panel del comité",
       "comite-calendario": "Calendario", "comite-avisos": "Avisos", "editar-jornada": top.p ? "Editar " + (jornadas.find((x) => x.id === top.p) ? etiquetaJ(jornadas.find((x) => x.id === top.p)) : "jornada") : "Nueva jornada",
       gestion: top.p ? jTit(top.p) : "", jornada: top.p ? jTit(top.p) : "", inscribir: "Inscripción",
-      editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel" };
-    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
+      editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel",
+      "tarjeta-comite": "Tarjeta", "comite-tarjetas": top.p ? jTit(top.p) : "", brutos: "Brutos a mano", "tarjeta-jugador": "Tarjeta",
+      "ranking-jugador": typeof top.p === "string" ? top.p.split("|")[2] : "" };
+    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar", "tarjeta-comite", "comite-tarjetas", "brutos"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
     cab = html`<${Cabecera} sub=${sub} titulo=${T[top.v]} onBack=${atras} />`;
     const volverRecargando = () => atras();
     if (top.v === "directorio") cuerpo = html`<${Directorio}/>`;
@@ -512,6 +514,8 @@ function App() {
     else if (!temporada) cuerpo = html`<div class="err" style=${{ margin: "12px" }}>No hay temporada activa.</div>`;
     else if (top.v === "jornada") cuerpo = html`<${FichaJornada} key=${top.p} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "inscribir") cuerpo = html`<${Inscribir} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "tarjeta-jugador") cuerpo = html`<${TarjetaJugador} ctx=${ctx} p=${top.p}/>`;
+    else if (top.v === "ranking-jugador") cuerpo = html`<${RankingJugador} ctx=${ctx} p=${top.p}/>`;
     else if (!yo.es_admin) cuerpo = html`<div class="err" style=${{ margin: "12px" }}>Solo para el comité.</div>`;
     else if (top.v === "comite-hub") cuerpo = html`<${ComiteHub} ctx=${ctx}/>`;
     else if (top.v === "comite" || top.v === "comite-jugadores") cuerpo = html`<${ComiteJugadores} temporada=${temporada} go=${go}/>`;
@@ -519,6 +523,9 @@ function App() {
     else if (top.v === "comite-avisos") cuerpo = html`<${ComiteAvisos} ctx=${ctx}/>`;
     else if (top.v === "editar-jornada") cuerpo = html`<${EditarJornada} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "gestion") cuerpo = html`<${GestionJornada} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "comite-tarjetas") cuerpo = html`<${ComiteTarjetas} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "tarjeta-comite") cuerpo = html`<${Tarjeta} ctx=${ctx} pid=${top.p} comite=${true}/>`;
+    else if (top.v === "brutos") cuerpo = html`<${BrutosManual} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "editar") cuerpo = html`<${EditarJugador} temporada=${temporada} id=${top.p} yo=${yo} volver=${volverRecargando}/>`;
     else if (top.v === "ficha") cuerpo = html`<${Ficha} key=${top.p + pila.length} temporada=${temporada} id=${top.p} go=${go} volver=${volverRecargando}/>`;
     else if (top.v === "importar") cuerpo = html`<${Importar} temporada=${temporada} yo=${yo} volver=${volverRecargando}/>`;
@@ -529,6 +536,8 @@ function App() {
     else if (tab === "inicio") cuerpo = html`<${Inicio2} ctx=${ctx}/>`;
     else if (tab === "calendario") cuerpo = html`<${Calendario} ctx=${ctx}/>`;
     else if (tab === "pool") cuerpo = html`<${Pool} yo=${yo} go=${go}/>`;
+    else if (tab === "tarjeta") cuerpo = html`<${TarjetaTab} ctx=${ctx}/>`;
+    else if (tab === "clasificacion") cuerpo = html`<${Clasificacion} ctx=${ctx}/>`;
     else cuerpo = html`<${Proximamente} que=${T[tab]}/>`;
   }
   return html`<${React.Fragment}>${cab}<main key=${pila.length + tab + (top ? top.v + top.p : "")}>${cuerpo}</main>${conNav && html`<${Nav} tab=${tab} setTab=${setTab}/>`}</${React.Fragment}>`;
