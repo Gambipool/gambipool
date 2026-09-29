@@ -57,7 +57,7 @@ label.l{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06
 .ok{background:var(--soft);color:var(--hd);border-radius:4px;padding:10px;font-size:14px;margin-top:10px}
 
 /* Login */
-.login{padding:0 24px;flex:1;display:flex;flex-direction:column;justify-content:center;min-height:100vh;max-width:420px;margin:0 auto;width:100%}
+.login{padding:calc(24px + env(safe-area-inset-top)) 24px 24px;flex:1;display:flex;flex-direction:column;min-height:100vh;max-width:420px;margin:0 auto;width:100%}
 .logo{font-family:var(--serif);font-size:38px;font-weight:700;color:var(--hd);text-align:center}
 .logo small{display:block;font-family:var(--sans);font-size:15px;letter-spacing:.04em;color:var(--accdark);font-weight:600;margin-top:6px}
 
@@ -100,3 +100,4 @@ table.prev td,table.prev th{padding:6px 4px;border-bottom:1px solid var(--line2)
 .modal{position:fixed;inset:0;background:rgba(20,28,22,.55);display:flex;align-items:flex-end;justify-content:center;z-index:20}
 .sheet{background:#fff;width:100%;max-width:560px;border-radius:14px 14px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));max-height:90vh;overflow:auto}
 .sheet h3{font-family:var(--serif);margin:0 0 6px;font-size:20px}
+.login>:first-child{margin-top:auto}.login>:last-child{margin-bottom:auto}

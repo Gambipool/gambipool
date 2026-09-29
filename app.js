@@ -113,7 +113,15 @@ function Privacidad({ yo, onOk }) {
     <div class="logo" style=${{"fontSize": "28px"}}>Bienvenido, ${yo.nombre_corto.split(" ")[0]}</div>
     <div class="card" style=${{"margin": "24px 0 0"}}>
       <h3>Protección de datos</h3>
-      <p class="muted">[Texto informativo pendiente de redactar por el comité: responsable del tratamiento, finalidad (gestión de la Gambipool), datos que se guardan (nombre, email, móvil, licencia, hándicap y resultados), quién los ve (el resto de jugadores solo nombre y móvil; el comité, todos) y cómo ejercer los derechos.]</p>
+      <div class="muted" style=${{"lineHeight":"1.45"}}>
+        <p><b>Responsable:</b> Gambipool. Contacto: gambipoolguadalhorce@gmail.com</p>
+        <p><b>Finalidad:</b> gestionar la Gambipool: inscripciones, horarios, resultados, clasificaciones, comunicaciones del comité y régimen disciplinario previsto en el reglamento.</p>
+        <p><b>Datos:</b> nombre y apellidos, email, móvil, número de licencia, hándicap y resultados deportivos.</p>
+        <p><b>Quién los ve:</b> los demás jugadores ven tu nombre, tu móvil y tus resultados. El comité ve todos tus datos. No se ceden a terceros. Se alojan en Supabase (servidores en la Unión Europea), que actúa como proveedor técnico.</p>
+        <p><b>Base:</b> tu consentimiento y tu participación en la pool.</p>
+        <p><b>Conservación:</b> mientras seas miembro de la pool. Los resultados se conservan en el histórico de temporadas.</p>
+        <p><b>Derechos:</b> puedes ejercer tus derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a gambipoolguadalhorce@gmail.com, y reclamar ante la Agencia Española de Protección de Datos.</p>
+      </div>
     </div>
     <${Toggle} on=${acepta} onChange=${setAcepta} label="He leído y acepto" />
     <button class="btn" disabled=${!acepta} onClick=${seguir}>Continuar</button>
