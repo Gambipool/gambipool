@@ -149,7 +149,7 @@ function Palmares({ ctx }) {
   const borrar = async () => { if (!confirm(`¿Borrar ${edit.anio} del palmarés?`)) return; await sb.from("palmares").delete().eq("anio", +edit.anio); setEdit(null); cargar(); };
   return html`<div class="clw">
     <div class="cl h pal"><span>Año</span><span>Scratch</span><span>Hándicap</span></div>
-    ${lista.map((r) => html`<button key=${r.anio} class="cl pal" onClick=${() => yo.es_admin && setEdit({ anio: String(r.anio), scratch: r.scratch || "", handicap: r.handicap || "" })}>
+    ${lista.map((r) => html`<button key=${r.anio} class="cl pal" disabled=${!yo.es_admin} style=${yo.es_admin ? null : { cursor: "default", color: "inherit" }} onClick=${() => yo.es_admin && setEdit({ anio: String(r.anio), scratch: r.scratch || "", handicap: r.handicap || "" })}>
       <span class="p">${r.anio}</span><span class=${r.enJuego || !r.scratch ? "mu" : ""}>${r.enJuego ? "En juego" : r.scratch || "—"}</span><span class=${r.enJuego || !r.handicap ? "mu" : ""}>${r.enJuego ? "En juego" : r.handicap || "—"}</span></button>`)}
     ${yo.es_admin && html`<div style=${{ margin: "12px" }}><button class="btn sec" onClick=${() => setEdit({ anio: "", scratch: "", handicap: "", nuevo: true })}>+ Añadir año</button></div>`}
     ${edit && html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && setEdit(null)}><div class="sheet"><h3>${edit.nuevo ? "Añadir año" : "Palmarés " + edit.anio}</h3>
