@@ -218,19 +218,19 @@ function Estadisticas({ ctx }) {
   const [d, setD] = useState(undefined); const [err, setErr] = useState("");
   useEffect(() => { setD(undefined); calcEstadisticas(T).then(setD).catch((e) => setErr(errTxt(e))); }, [T.id]);
   const hm2 = (m) => `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")}`;
-  const Caja = ({ t, filas }) => html`<div class="card stc"><h3>${t}</h3>${filas.length ? filas.map(([n, v, e], i) => html`<div key=${n + i} class=${"kv" + (n === yo.nombre_corto ? " mek" : "")}><span><b class="pp">${filas.findIndex((f) => f[1] === v) + 1}</b>${n}${e ? html`<small class="muted"> · ${e}</small>` : ""}</span><b class="num">${v}</b></div>`) : html`<p class="muted" style=${{ margin: "4px 0" }}>—</p>`}</div>`;
+  const Caja = ({ t, filas, rank }) => html`<div class="card stc"><h3>${t}</h3>${filas.length ? filas.map(([n, v, e], i) => html`<div key=${n + i} class=${"kv" + (n === yo.nombre_corto ? " mek" : "")}><span>${rank && html`<b class="pp">${filas.findIndex((f) => f[1] === v) + 1}</b>`}${n}${e ? html`<small class="muted"> · ${e}</small>` : ""}</span><b class="num">${v}</b></div>`) : html`<p class="muted" style=${{ margin: "4px 0" }}>—</p>`}</div>`;
   return html`<div><${Sel}/>
     ${err ? html`<div class="err" style=${{ margin: "12px" }}>${err}</div>` : d === undefined ? html`<${Spinner}/>` : !d ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Todavía no hay jornadas cerradas.</p></div>` : html`<div>
-      <${Caja} t="Más birdies" filas=${d.bir}/>
+      <${Caja} t="Más birdies" rank filas=${d.bir}/>
       <${Caja} t="Más eagles" filas=${d.eag}/>
       <${Caja} t="Más pares seguidos" filas=${d.racha.map((x) => [x.n, x.v, `${nombreJ(x.j)} · hoyos ${x.a}–${x.b}`])}/>
       <${Caja} t="Hoyos en uno" filas=${d.ace.map((x) => [x.n, "Hoyo " + x.h, nombreJ(x.j)])}/>
-      <${Caja} t="Más triple bogeys" filas=${d.tri}/>
+      <${Caja} t="Más triple bogeys" rank filas=${d.tri}/>
       <${Caja} t="Mejor vuelta scratch" filas=${d.ms.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Mejor vuelta hándicap" filas=${d.mh.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Peor vuelta scratch" filas=${d.ps.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Peor vuelta hándicap" filas=${d.ph.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
-      <${Caja} t="Los más lentos" filas=${d.lentos.map(([n, m]) => [n, hm2(m)])}/>
+      <${Caja} t="Los más lentos" rank filas=${d.lentos.map(([n, m]) => [n, hm2(m)])}/>
     </div>`}
   </div>`;
 }
