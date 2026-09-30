@@ -162,26 +162,6 @@ function Directorio() {
   </div>`;
 }
 
-function Pool({ yo, go }) {
-  const items = [["directorio", "Jugadores", "Nombre y móvil de todos"], ["perfil", "Mi perfil", "Tus datos y cerrar sesión"], ["-", "Reglamento", "Próximamente"], ["-", "Ryder", "Próximamente"], ["-", "Lista de espera", "Próximamente"], ["-", "Estadísticas", "Segunda fase"]];
-  return html`<div class="list" style=${{"marginTop": "12px"}}>${items.map(([k, t, s]) => html`<button class="row" key=${t} disabled=${k === "-"} onClick=${() => k !== "-" && go(k)} style=${k === "-" ? { opacity: 0.55 } : null}>
-      <span class="n">${t}<small>${s}</small></span><span aria-hidden="true">›</span></button>`)}</div>`;
-}
-
-function Perfil({ yo }) {
-  return html`<div>
-    <div class="card"><h3>${yo.nombre}</h3>
-      <div class="kv"><span>Nombre corto</span><b>${yo.nombre_corto}</b></div>
-      <div class="kv"><span>Email</span><b>${yo.email}</b></div>
-      <div class="kv"><span>Móvil</span><b>${yo.movil || "—"}</b></div>
-      <div class="kv"><span>Licencia</span><b>${yo.licencia || "—"}</b></div>
-      <div class="kv"><span>Último hándicap</span><b class="num">${yo.ultimo_hcp != null ? String(yo.ultimo_hcp).replace(".", ",") : "—"}</b></div>
-      <p class="muted" style=${{"marginBottom": "0"}}>Si algún dato no es correcto, díselo al comité.</p>
-    </div>
-    <div style=${{"margin": "0 12px"}}><button class="btn sec" onClick=${() => sb.auth.signOut()}>Cerrar sesión</button></div>
-  </div>`;
-}
-
 /* ---------- Comité: jugadores ---------- */
 function useJugadoresComite(temporada) {
   const [lista, setLista] = useState(null);
@@ -505,15 +485,19 @@ function App() {
       gestion: top.p ? jTit(top.p) : "", jornada: top.p ? jTit(top.p) : "", inscribir: "Inscripción",
       editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel",
       "tarjeta-comite": "Tarjeta", "comite-tarjetas": top.p ? jTit(top.p) : "", brutos: "Brutos a mano", "tarjeta-jugador": "Tarjeta",
-      "ranking-jugador": typeof top.p === "string" ? top.p.split("|")[2] : "" };
-    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar", "tarjeta-comite", "comite-tarjetas", "brutos"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
+      "ranking-jugador": typeof top.p === "string" ? top.p.split("|")[2] : "", reglamento: "Reglamento", contabilidad: "Contabilidad", estadisticas: "Estadísticas", palmares: "Palmarés", "comite-temporadas": "Temporadas" };
+    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar", "tarjeta-comite", "comite-tarjetas", "brutos", "comite-temporadas"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
     cab = html`<${Cabecera} sub=${sub} titulo=${T[top.v]} onBack=${atras} />`;
     const volverRecargando = () => atras();
     if (top.v === "directorio") cuerpo = html`<${Directorio}/>`;
-    else if (top.v === "perfil") cuerpo = html`<${Perfil} yo=${yo}/>`;
+    else if (top.v === "perfil") cuerpo = html`<${Perfil} yo=${yo} temporada=${temporada}/>`;
     else if (!temporada) cuerpo = html`<div class="err" style=${{ margin: "12px" }}>No hay temporada activa.</div>`;
     else if (top.v === "jornada") cuerpo = html`<${FichaJornada} key=${top.p} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "inscribir") cuerpo = html`<${Inscribir} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "reglamento") cuerpo = html`<${Reglamento} ctx=${ctx}/>`;
+    else if (top.v === "contabilidad") cuerpo = html`<${Contabilidad} ctx=${ctx}/>`;
+    else if (top.v === "estadisticas") cuerpo = html`<${Estadisticas} ctx=${ctx}/>`;
+    else if (top.v === "palmares") cuerpo = html`<${Palmares} ctx=${ctx}/>`;
     else if (top.v === "tarjeta-jugador") cuerpo = html`<${TarjetaJugador} ctx=${ctx} p=${top.p}/>`;
     else if (top.v === "ranking-jugador") cuerpo = html`<${RankingJugador} ctx=${ctx} p=${top.p}/>`;
     else if (!yo.es_admin) cuerpo = html`<div class="err" style=${{ margin: "12px" }}>Solo para el comité.</div>`;
@@ -523,6 +507,7 @@ function App() {
     else if (top.v === "comite-avisos") cuerpo = html`<${ComiteAvisos} ctx=${ctx}/>`;
     else if (top.v === "editar-jornada") cuerpo = html`<${EditarJornada} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "gestion") cuerpo = html`<${GestionJornada} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "comite-temporadas") cuerpo = html`<${ComiteTemporadas} ctx=${ctx}/>`;
     else if (top.v === "comite-tarjetas") cuerpo = html`<${ComiteTarjetas} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "tarjeta-comite") cuerpo = html`<${Tarjeta} ctx=${ctx} pid=${top.p} comite=${true}/>`;
     else if (top.v === "brutos") cuerpo = html`<${BrutosManual} ctx=${ctx} id=${top.p}/>`;

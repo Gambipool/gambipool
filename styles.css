@@ -223,3 +223,13 @@ select.inp{appearance:auto}
 .count span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .row .x{color:var(--hd);font-size:13px;font-weight:700}
 .sels select:first-child{flex:0 0 96px}
+
+/* ===== La Pool ===== */
+.saldo{background:var(--hd);color:#fff;margin:12px;border-radius:8px;padding:16px;text-align:center}
+.saldo small{display:block;letter-spacing:.12em;text-transform:uppercase;font-size:11px;opacity:.8}
+.saldo b{display:block;font-family:var(--serif);font-size:32px;margin:2px 0}.saldo span{font-size:13px;opacity:.85}
+.kv b.num{white-space:nowrap}
+.lnk{background:none;border:0;padding:0;font:inherit;color:var(--ink);text-align:left;cursor:pointer;text-decoration:underline dotted var(--line)}
+.card.stc{padding:8px 14px}.card.stc h3{font-size:16px;margin:4px 0 2px}.pp{font-family:var(--serif);color:var(--accdark);margin-right:8px}
+.kv.mek{background:var(--hl);margin:0 -8px;padding:8px}
+.cl.pal{grid-template-columns:60px 1fr 1fr}.cl.pal span{text-align:left!important}
