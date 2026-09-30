@@ -97,7 +97,13 @@ function Contabilidad({ ctx }) {
   const cuota = +((T.reglas || {}).cuota || 0);
   const ingresos = d.mv.filter((m) => m.tipo === "ingreso"), gastos = d.mv.filter((m) => m.tipo === "gasto");
   const ti = d.n * cuota + ingresos.reduce((s, m) => s + +m.importe, 0), tg = gastos.reduce((s, m) => s + +m.importe, 0);
-  const imp = (s) => { const v = parseFloat(String(s).replace(/\./g, "").replace(",", ".")); return isNaN(v) || v < 0 ? null : Math.round(v * 100) / 100; };
+  // "1.234,50" · "1234,5" · "12.50" · "1.250" → número (el punto solo es de miles si va seguido de 3 cifras)
+  const imp = (s) => {
+    let t = String(s).trim().replace(/\s|€/g, "");
+    if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+    else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+    const v = Number(t); return !t || isNaN(v) || v < 0 ? null : Math.round(v * 100) / 100;
+  };
   const anadir = async () => {
     setErr(""); const v = imp(nuevo.importe);
     if (!nuevo.concepto.trim()) return setErr("Falta el concepto."); if (v == null) return setErr("Importe no válido.");
@@ -215,8 +221,9 @@ async function calcEstadisticas(T) {
 function Estadisticas({ ctx }) {
   const { yo } = ctx;
   const { T, Sel } = useTemporadas(ctx);
-  const [d, setD] = useState(undefined); const [err, setErr] = useState("");
-  useEffect(() => { setD(undefined); calcEstadisticas(T).then(setD).catch((e) => setErr(errTxt(e))); }, [T.id]);
+  const [err, setErr] = useState("");
+  const [d, setD] = useState(() => cacheLeer(`est_${T.id}`));
+  useEffect(() => { setD(cacheLeer(`est_${T.id}`)); calcEstadisticas(T).then((v) => { cacheGuardar(`est_${T.id}`, v); setD(v); setErr(""); }).catch((e) => { if (cacheLeer(`est_${T.id}`) === undefined) setErr(errTxt(e)); }); }, [T.id]);
   const hm2 = (m) => `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")}`;
   const Caja = ({ t, filas, rank }) => html`<div class="card stc"><h3>${t}</h3>${filas.length ? filas.map(([n, v, e], i) => html`<div key=${n + i} class=${"kv" + (n === yo.nombre_corto ? " mek" : "")}><span>${rank && html`<b class="pp">${filas.findIndex((f) => f[1] === v) + 1}</b>`}${n}${e ? html`<small class="muted"> · ${e}</small>` : ""}</span><b class="num">${v}</b></div>`) : html`<p class="muted" style=${{ margin: "4px 0" }}>—</p>`}</div>`;
   return html`<div><${Sel}/>

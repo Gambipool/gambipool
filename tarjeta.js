@@ -5,11 +5,17 @@
 const cacheHoyos = {};
 async function cargarHoyos(campo) {
   if (cacheHoyos[campo]) return cacheHoyos[campo];
-  const { data } = await sb.from("hoyos").select("*").eq("campo", campo).order("hoyo");
-  cacheHoyos[campo] = data || [];
-  return cacheHoyos[campo];
+  const { data, error } = await sb.from("hoyos").select("*").eq("campo", campo).order("hoyo");
+  if (error) throw error;
+  if ((data || []).length === 18) cacheHoyos[campo] = data;   // un fallo no se queda guardado
+  return data || [];
 }
-const recibe = (hj, hcpHoyo) => (hj == null || hj <= 0 ? 0 : Math.floor(hj / 18) + (hcpHoyo <= hj % 18 ? 1 : 0));
+// Golpes que recibe en un hoyo. Hándicap "plus" (negativo): devuelve golpes en los hoyos más fáciles.
+const recibe = (hj, hcpHoyo) => {
+  if (hj == null || hj === 0) return 0;
+  if (hj > 0) return Math.floor(hj / 18) + (hcpHoyo <= hj % 18 ? 1 : 0);
+  const a = -hj; return -(Math.floor(a / 18) + (hcpHoyo > 18 - (a % 18) ? 1 : 0));
+};
 const relPar = (n) => (n === 0 ? "PAR" : n > 0 ? "+" + n : String(n));
 const claseGolpe = (g, par) => { const d = g - par; return d <= -2 ? "eag" : d === -1 ? "bir" : d === 1 ? "bog" : d >= 2 ? "dbl" : ""; };
 const ordenHoyos = (tee) => (tee === 10 ? [10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
@@ -28,38 +34,43 @@ function inicialesUnicas(nombres) {
 const COLA = "gp_cola_golpes";
 const leerCola = () => { try { return JSON.parse(localStorage.getItem(COLA) || "[]"); } catch (e) { return []; } };
 const guardarCola = (c) => { try { localStorage.setItem(COLA, JSON.stringify(c)); } catch (e) { /* sin almacenamiento */ } };
-const esErrorRed = (e) => !navigator.onLine || /fetch|network|load failed|timeout/i.test(errTxt(e));
-let enviando = false;
-async function enviarCola() {
-  if (enviando) return { pendientes: leerCola().length, errores: [] };
-  enviando = true; const errores = [];
-  try {
-    let c = leerCola();
-    while (c.length) {
-      const x = c[0];
-      let error;
-      try { ({ error } = await sb.rpc(x.t === "g" ? "anotar_golpe" : "retirar_jugador", x.t === "g" ? { p_inscripcion: x.i, p_hoyo: x.h, p_golpes: x.g } : { p_inscripcion: x.i, p_retirado: x.r })); }
-      catch (e) { error = e; }
-      if (error && esErrorRed(error)) break;         // sin señal: se queda en la cola
-      if (error) errores.push(errTxt(error));        // rechazado por el servidor: se descarta
-      c = leerCola().slice(1); guardarCola(c);
-    }
-  } finally { enviando = false; window.dispatchEvent(new Event("gp-cola")); }
-  return { pendientes: leerCola().length, errores };
+// Solo se descarta un golpe si el servidor lo rechaza por una regla (tarjeta validada, jornada cerrada…).
+// Cualquier otro fallo (sin señal, sesión caducada, servidor caído) lo deja en la cola para reintentar.
+const esRechazo = (e) => !!e && typeof e.code === "string" && (e.code === "P0001" || e.code.startsWith("23") || e.code.startsWith("22"));
+let colaEnCurso = null;
+function enviarCola() {
+  if (colaEnCurso) return colaEnCurso;
+  colaEnCurso = (async () => {
+    const errores = [];
+    try {
+      let c = leerCola();
+      while (c.length) {
+        const x = c[0];
+        let error;
+        try { ({ error } = await sb.rpc(x.t === "g" ? "anotar_golpe" : "retirar_jugador", x.t === "g" ? { p_inscripcion: x.i, p_hoyo: x.h, p_golpes: x.g } : { p_inscripcion: x.i, p_retirado: x.r })); }
+        catch (e) { error = e; }
+        if (error && !esRechazo(error)) break;          // sin señal o fallo puntual: se queda en la cola
+        if (error) errores.push(errTxt(error));         // rechazado por una regla: se descarta
+        c = leerCola().slice(1); guardarCola(c);
+      }
+    } finally { window.dispatchEvent(new Event("gp-cola")); }
+    return { pendientes: leerCola().length, errores };
+  })().finally(() => { colaEnCurso = null; });
+  return colaEnCurso;
 }
 window.addEventListener("online", () => enviarCola());
 
 /* ---------- Carga de una partida ---------- */
 async function cargarPartida(pid) {
-  const { data: p } = await sb.from("partidas").select("*").eq("id", pid).single();
-  const [{ data: j }, { data: ins }, { data: est }] = await Promise.all([
-    sb.from("jornadas").select("*").eq("id", p.jornada_id).single(),
-    sb.rpc("inscritos", { p_jornada: p.jornada_id }),
-    sb.from("inscripciones").select("id, retirado, bruto_manual").eq("partida_id", pid),
+  const p = await q(sb.from("partidas").select("*").eq("id", pid).single());
+  const [j, ins, est] = await Promise.all([
+    q(sb.from("jornadas").select("*").eq("id", p.jornada_id).single()),
+    q(sb.rpc("inscritos", { p_jornada: p.jornada_id })),
+    q(sb.from("inscripciones").select("id, retirado, bruto_manual").eq("partida_id", pid)),
   ]);
   const jug = (ins || []).filter((x) => x.partida_id === pid).map((x) => ({ ...x, ...((est || []).find((e) => e.id === x.inscripcion_id) || {}) }));
   const ids = jug.map((x) => x.inscripcion_id);
-  const { data: gs } = ids.length ? await sb.from("golpes").select("inscripcion_id, hoyo, golpes").in("inscripcion_id", ids) : { data: [] };
+  const gs = ids.length ? await q(sb.from("golpes").select("inscripcion_id, hoyo, golpes").in("inscripcion_id", ids)) : [];
   const golpes = {}; (gs || []).forEach((g) => { (golpes[g.inscripcion_id] = golpes[g.inscripcion_id] || {})[g.hoyo] = g.golpes; });
   // lo pendiente de enviar manda sobre lo del servidor
   leerCola().forEach((x) => { if (!ids.includes(x.i)) return; if (x.t === "g") { golpes[x.i] = golpes[x.i] || {}; if (x.g == null) delete golpes[x.i][x.h]; else golpes[x.i][x.h] = x.g; } else { const q = jug.find((y) => y.inscripcion_id === x.i); if (q) q.retirado = x.r; } });
@@ -94,9 +105,12 @@ function Tarjeta({ ctx, pid, comite }) {
   const [err, setErr] = useState("");
   const [cola, setCola] = useState(leerCola().length);
 
+  const version = React.useRef(0);
   const cargar = useCallback(async (primera) => {
     try {
+      const v0 = version.current;
       const r = await cargarPartida(pid);
+      if (!primera && v0 !== version.current) return;   // se anotó algo mientras cargaba: manda lo de pantalla
       setD(r); setMarcador(r.p.marcador_id);
       if (primera) {
         const orden = ordenHoyos(r.p.salida_tee);
@@ -139,7 +153,7 @@ function Tarjeta({ ctx, pid, comite }) {
   const poner = (x, h, v) => {
     const ng = { ...golpes, [x.inscripcion_id]: { ...(golpes[x.inscripcion_id] || {}) } };
     if (v == null) delete ng[x.inscripcion_id][h]; else ng[x.inscripcion_id][h] = v;
-    setD({ ...d, golpes: ng }); setErr("");
+    version.current++; setD({ ...d, golpes: ng }); setErr("");
     encolar({ t: "g", i: x.inscripcion_id, h, g: v });
   };
   const siguienteSinGolpe = (x) => { const k0 = jug.indexOf(x); const rot = [...jug.slice(k0 + 1), ...jug.slice(0, k0)]; return rot.find((y) => !y.retirado && !g(y, hoyo)); };
@@ -149,9 +163,13 @@ function Tarjeta({ ctx, pid, comite }) {
     const sig = siguienteSinGolpe(x);
     setModal(sig ? { teclado: sig } : null);
   };
-  const retirar = (x, r) => { setD({ ...d, jug: jug.map((y) => (y === x ? { ...y, retirado: r } : y)) }); encolar({ t: "r", i: x.inscripcion_id, r }); setModal(null); };
+  const retirar = (x, r) => { version.current++; setD({ ...d, jug: jug.map((y) => (y === x ? { ...y, retirado: r } : y)) }); encolar({ t: "r", i: x.inscripcion_id, r }); setModal(null); };
   const relevo = async () => { const { error } = await sb.rpc("tomar_relevo", { p_partida: p.id }); setModal(null); if (error) return setErr(errTxt(error)); setMarcador(yo.id); };
-  const validar = async () => { setModal(null); await enviarCola(); const { error } = await sb.rpc("validar_tarjeta", { p_partida: p.id }); if (error) return setErr(errTxt(error)); cargar(false); };
+  const validar = async () => {
+    setModal(null); await enviarCola();
+    const mios = jug.map((x) => x.inscripcion_id);
+    if (leerCola().some((x) => mios.includes(x.i))) return setErr("Hay golpes sin enviar por falta de cobertura. Valida cuando tengas señal.");
+    const { error } = await sb.rpc("validar_tarjeta", { p_partida: p.id }); if (error) return setErr(errTxt(error)); cargar(false); };
   const reabrir = async () => { const { error } = await sb.rpc("reabrir_tarjeta", { p_partida: p.id }); if (error) return setErr(errTxt(error)); cargar(false); };
 
   const cabecera = html`<div class="tband"><small>${nombreJ(j)} · Partida ${p.numero} · Tee ${p.salida_tee || 1}</small>

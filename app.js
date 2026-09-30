@@ -17,6 +17,51 @@ const fmtFecha = (d) => (d ? new Date(d).toLocaleDateString("es-ES", { day: "num
 const ESTADOS = { activo: "Activo", espera: "Lista de espera", baja: "Baja" };
 const errTxt = (e) => (e && (e.message || e.error_description || String(e))) || "Error desconocido";
 
+/* ---------- Caché: se enseña lo último visto al momento y se actualiza por detrás ---------- */
+const CK = "gp_c1_";
+const cacheMem = {};
+function cacheLeer(k) {
+  if (k in cacheMem) return cacheMem[k];
+  try { const v = localStorage.getItem(CK + k); if (v != null) return (cacheMem[k] = JSON.parse(v)); } catch (e) { /* sin almacenamiento */ }
+  return undefined;
+}
+function cacheGuardar(k, v, persistir = true) {
+  cacheMem[k] = v;
+  if (persistir) try { localStorage.setItem(CK + k, JSON.stringify(v)); } catch (e) { /* lleno o bloqueado */ }
+}
+function cacheBorrar(prefijo) {
+  Object.keys(cacheMem).filter((k) => k.startsWith(prefijo)).forEach((k) => delete cacheMem[k]);
+  try { Object.keys(localStorage).filter((k) => k.startsWith(CK + prefijo)).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* nada */ }
+}
+function cacheBorrarTodo() {
+  Object.keys(cacheMem).forEach((k) => delete cacheMem[k]);
+  try { Object.keys(localStorage).filter((k) => k.startsWith("gp_c")).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* nada */ }
+}
+// Lanza el error de Supabase en vez de devolver datos vacíos (así no se guarda en caché un fallo)
+async function q(p) { const { data, error } = await p; if (error) throw error; return data; }
+// Hook: [datos, recargar]. Con clave null no carga nada.
+function useCache(clave, cargar, deps = [], persistir = true) {
+  const [d, setD] = useState(() => (clave ? cacheLeer(clave) : undefined));
+  const recargar = useCallback(async () => {
+    if (!clave) return;
+    try { const v = await cargar(); if (v !== undefined) { cacheGuardar(clave, v, persistir); setD(v); } } catch (e) { /* sin red: se queda lo que había */ }
+  }, [clave, ...deps]);
+  useEffect(() => { setD(clave ? cacheLeer(clave) : undefined); recargar(); }, [recargar]);
+  return [d, recargar];
+}
+
+/* ---------- Librería de Excel: solo se descarga cuando el comité importa o exporta ---------- */
+let xlsxPromesa = null;
+function cargarXLSX() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!xlsxPromesa) xlsxPromesa = new Promise((ok, ko) => {
+    const s = document.createElement("script"); s.src = "vendor/xlsx.full.min.js";
+    s.onload = () => ok(window.XLSX); s.onerror = () => { xlsxPromesa = null; ko(new Error("No se pudo cargar el módulo de Excel. Revisa la conexión.")); };
+    document.head.appendChild(s);
+  });
+  return xlsxPromesa;
+}
+
 const I = {
   home: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>`,
   cal: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`,
@@ -349,7 +394,8 @@ function Modal({ modal, j, cerrar, ponerAmarilla, anular, darBaja }) {
 /* ---------- Comité: Excel ---------- */
 const COLS = ["Nombre y apellidos", "Nombre corto", "Email", "Móvil", "Nº licencia", "Estado", "Inscripción pagada", "Administrador", "Amarillas"];
 
-function exportarExcel(lista, temporada) {
+async function exportarExcel(lista, temporada) {
+  try { await cargarXLSX(); } catch (e) { return alert(errTxt(e)); }
   const filas = lista.map((j) => [j.nombre, j.nombre_corto, j.email, j.movil || "", j.licencia || "", j.estado ? ESTADOS[j.estado] : "", j.pagado ? "Sí" : "No", j.es_admin ? "Sí" : "No", j.nAm]);
   const ws = XLSX.utils.aoa_to_sheet([COLS, ...filas]);
   ws["!cols"] = [32, 26, 30, 16, 16, 16, 18, 14, 11].map((w) => ({ wch: w }));
@@ -371,6 +417,7 @@ function Importar({ temporada, volver, yo }) {
     setErr(""); setRes(null);
     const f = e.target.files[0]; if (!f) return;
     try {
+      await cargarXLSX();
       const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
       const ws = wb.Sheets["Jugadores"] || wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
@@ -429,21 +476,21 @@ function Importar({ temporada, volver, yo }) {
 /* ---------- App ---------- */
 let saludoElegido = null;
 const saludoDe = (yo) => (saludoElegido || "Hola, " + yo.nombre_corto.split(" ")[0]);
-async function elegirSaludo(yo) {
+function elegirSaludo(yo, frases) {
   saludoElegido = null;
-  const cats = yo.saludo_cats || []; if (!cats.length) return;
-  const { data } = await sb.from("saludos").select("frase").in("categoria", cats);
-  if (data && data.length) saludoElegido = data[Math.floor(Math.random() * data.length)].frase.replace(/\{nombre\}/g, yo.nombre_corto.split(" ")[0]);
+  if (frases && frases.length) saludoElegido = frases[Math.floor(Math.random() * frases.length)].frase.replace(/\{nombre\}/g, yo.nombre_corto.split(" ")[0]);
 }
 function App() {
   const [session, setSession] = useState(undefined);
-  const [yo, setYo] = useState(undefined);
-  const [temporada, setTemporada] = useState(null);
-  const [jornadas, setJornadas] = useState([]);
-  const [barras, setBarras] = useState([]);
+  // Arranque instantáneo: lo último guardado en el móvil se enseña mientras llega lo nuevo
+  const [yo, setYo] = useState(() => { const y = cacheLeer("yo"); if (y && y.id) elegirSaludo(y, cacheLeer("frases")); return y; });
+  const [temporada, setTemporada] = useState(() => cacheLeer("temporada") || null);
+  const [jornadas, setJornadas] = useState(() => cacheLeer("jornadas") || []);
+  const [barras, setBarras] = useState(() => cacheLeer("barras") || []);
   const [tab, setTab] = useState("inicio");
   const [pila, setPila] = useState([]); // pantallas apiladas [{v, p}]
   const [errGlobal, setErrGlobal] = useState("");
+  const uid = session ? (session.user.id || session.user.email) : session;
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session || null));
@@ -453,36 +500,53 @@ function App() {
 
   const cargarJornadas = useCallback(async (t) => {
     const tt = t || temporada; if (!tt) return;
-    const [{ data: js }, { data: bs }] = await Promise.all([
-      sb.from("jornadas").select("*").eq("temporada_id", tt.id).order("fecha"),
-      sb.from("barras").select("*"),
-    ]);
-    setJornadas(js || []); setBarras(bs || []);
+    try { const js = await q(sb.from("jornadas").select("*").eq("temporada_id", tt.id).order("fecha")); cacheGuardar("jornadas", js); setJornadas(js); } catch (e) { /* sin red */ }
   }, [temporada]);
 
   const cargarYo = useCallback(async () => {
-    const { data, error } = await sb.rpc("mi_jugador");
-    if (error) { setErrGlobal(errTxt(error)); setYo(null); return; }
-    const y = Array.isArray(data) ? data[0] : data;
-    if (y && y.id) await elegirSaludo(y);
-    setYo(y && y.id ? y : null);
-    const { data: t } = await sb.from("temporadas").select("*").eq("activa", true).maybeSingle();
-    setTemporada(t || null);
-    if (t) await cargarJornadas(t);
+    setErrGlobal("");
+    try {
+      const [yd, t, bs] = await Promise.all([q(sb.rpc("mi_jugador")), q(sb.from("temporadas").select("*").eq("activa", true).maybeSingle()), q(sb.from("barras").select("*"))]);
+      const y = Array.isArray(yd) ? yd[0] : yd;
+      if (!y || !y.id) { cacheBorrarTodo(); setYo(null); return; }
+      const [js, frases] = await Promise.all([
+        t ? q(sb.from("jornadas").select("*").eq("temporada_id", t.id).order("fecha")) : [],
+        (y.saludo_cats || []).length ? q(sb.from("saludos").select("frase").in("categoria", y.saludo_cats)) : [],
+      ]);
+      if (saludoElegido == null || !cacheLeer("yo")) elegirSaludo(y, frases);
+      cacheGuardar("yo", y); cacheGuardar("temporada", t || null); cacheGuardar("jornadas", js); cacheGuardar("barras", bs); cacheGuardar("frases", frases);
+      setTemporada(t || null); setJornadas(js); setBarras(bs); setYo(y);
+    } catch (e) {
+      // sin red o fallo puntual: si ya teníamos datos, seguimos con ellos
+      if (!cacheLeer("yo")) { setErrGlobal(errTxt(e)); setYo(null); }
+    }
   }, []);
 
-  useEffect(() => { if (session) cargarYo(); else { setYo(undefined); setPila([]); } }, [session]);
+  // Solo al entrar, al salir o si cambia el usuario (no en cada renovación del token)
+  useEffect(() => {
+    if (uid) { cargarYo(); enviarCola(); }
+    else if (uid === null) { cacheBorrarTodo(); setYo(undefined); setPila([]); }
+  }, [uid]);
+
+  // Golpes pendientes: se envían al abrir la app y al volver a ella
+  useEffect(() => {
+    const f = () => { if (!document.hidden) enviarCola(); };
+    document.addEventListener("visibilitychange", f);
+    return () => document.removeEventListener("visibilitychange", f);
+  }, []);
 
   if (session === undefined) return html`<${Spinner}/>`;
   if (!session) return html`<${Login}/>`;
   if (yo === undefined) return html`<${Spinner}/>`;
   if (!yo) return html`<div class="login"><div class="logo">Gambipool</div>
-      <div class="err">${errGlobal || "Tu email ya no tiene acceso a la pool. Habla con el comité."}</div>
+      <div class="err">${errGlobal ? "No se ha podido conectar. Revisa la cobertura y vuelve a intentarlo." : "Tu email ya no tiene acceso a la pool. Habla con el comité."}</div>
+      ${errGlobal && html`<button class="btn" onClick=${() => { setYo(undefined); cargarYo(); }}>Reintentar</button>`}
       <button class="btn sec" onClick=${() => sb.auth.signOut()}>Salir</button></div>`;
   if (!yo.acepta_privacidad) return html`<${Privacidad} yo=${yo} onOk=${cargarYo}/>`;
 
   const go = (v, p) => { setPila([...pila, { v, p }]); window.scrollTo(0, 0); };
-  const atras = () => { setPila(pila.slice(0, -1)); cargarJornadas(); };
+  // Al volver de una pantalla (donde quizá te inscribiste o diste de baja) no se enseña la jornada guardada
+  const atras = () => { cacheBorrar("jor_"); setPila(pila.slice(0, -1)); cargarJornadas(); };
   const top = pila[pila.length - 1];
   const ctx = { yo, temporada, jornadas, barras, go, atras, tab, setTab, recargar: () => cargarJornadas() };
   const jTit = (id) => { const j = jornadas.find((x) => x.id === id); return j ? `${nombreJ(j)} · ${fechaJ(j)}` : "Jornada"; };

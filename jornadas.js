@@ -10,7 +10,14 @@ const partes = (ts) => Object.fromEntries(new Intl.DateTimeFormat("es-ES", { tim
 const fmtPlazo = (ts) => { if (!ts) return "—"; const p = partes(ts); return `${cap(p.weekday.replace(".", ""))} ${p.day} · ${String(+p.hour)}:${p.minute}`; };
 const fmtAviso = (ts) => { const p = partes(ts); return `${p.day} ${p.month.replace(".", "")} · ${String(+p.hour)}:${p.minute}`; };
 const toLocalInput = (ts) => { if (!ts) return ""; const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(ts)).map((x) => [x.type, x.value])); return `${p.year}-${p.month}-${p.day}T${p.hour === "24" ? "00" : p.hour}:${p.minute}`; };
-const fromLocalInput = (v) => (v ? new Date(v).toISOString() : null);
+// "YYYY-MM-DDTHH:mm" en hora de Madrid → ISO (da igual la zona horaria del móvil)
+const fromLocalInput = (v) => {
+  if (!v) return null;
+  const g = new Date(v + ":00Z");
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(g).map((x) => [x.type, x.value]));
+  const w = new Date(`${p.year}-${p.month}-${p.day}T${p.hour === "24" ? "00" : p.hour}:${p.minute}:${p.second}Z`);
+  return new Date(g - (w - g)).toISOString();
+};
 const hm = (t) => (t ? String(t).slice(0, 5) : "");
 const hmBonito = (t) => (t ? String(+t.slice(0, 2)) + ":" + t.slice(3, 5) : "");
 const toMin = (t) => { const [h, m] = String(t).slice(0, 5).split(":").map(Number); return h * 60 + m; };
@@ -132,12 +139,22 @@ function avisosHorario(parts, nIns) {
 
 /* ---------- Datos ---------- */
 async function cargarJornada(id, yo) {
-  const [{ data: j }, { data: ins }, { data: parts }] = await Promise.all([
+  const [{ data: j }, { data: ins }, { data: parts }, { data: mia }] = await Promise.all([
     sb.from("jornadas").select("*").eq("id", id).single(),
     sb.rpc("inscritos", { p_jornada: id }),
     sb.from("partidas").select("*").eq("jornada_id", id).order("numero"),
+    sb.from("inscripciones").select("*").eq("jornada_id", id).eq("jugador_id", yo.id).maybeSingle(),
   ]);
-  const { data: mia } = await sb.from("inscripciones").select("*").eq("jornada_id", id).eq("jugador_id", yo.id).maybeSingle();
+  return { j, ins: ins || [], parts: parts || [], mia: mia && mia.estado === "inscrito" ? mia : null };
+}
+// Igual, pero falla si falla algo (para la caché)
+async function cargarJornadaQ(id, yo) {
+  const [j, ins, parts, mia] = await Promise.all([
+    q(sb.from("jornadas").select("*").eq("id", id).single()),
+    q(sb.rpc("inscritos", { p_jornada: id })),
+    q(sb.from("partidas").select("*").eq("jornada_id", id).order("numero")),
+    q(sb.from("inscripciones").select("*").eq("jornada_id", id).eq("jugador_id", yo.id).maybeSingle()),
+  ]);
   return { j, ins: ins || [], parts: parts || [], mia: mia && mia.estado === "inscrito" ? mia : null };
 }
 
@@ -155,7 +172,7 @@ function Partida({ p, ins, yoId, onSalida }) {
     <div class="t"><b>Partida ${p.numero}</b><span class="num">${mias.length} jug.</span></div>
     <div class="names">${mias.map((x) => x.nombre_corto).join(", ") || "—"}</div>
     ${p.salida_hora ? html`<div class="times num"><b>Salida: ${hmBonito(hm(p.salida_hora))} · Tee ${p.salida_tee}</b></div>`
-      : (p.t1.length || p.t10.length) && html`<div class="times num">${p.t1.length ? "T1 " + p.t1.map(hmBonito).join(" · ") : ""}${p.t10.length ? "  ·  T10 " + p.t10.map(hmBonito).join(" · ") : ""}</div>`}
+      : p.t1.length + p.t10.length > 0 && html`<div class="times num">${p.t1.length ? "T1 " + p.t1.map(hmBonito).join(" · ") : ""}${p.t10.length ? "  ·  T10 " + p.t10.map(hmBonito).join(" · ") : ""}</div>`}
     ${soyYo && onSalida && html`<button class="btn small" style=${{ marginTop: "8px" }} onClick=${() => onSalida(p)}>${p.salida_hora ? "Cambiar salida conseguida" : "Apuntar salida conseguida"}</button>`}
   </div>`;
 }
@@ -325,11 +342,10 @@ function ListaInscritos({ ins, j, yoId }) {
 function Inicio2({ ctx }) {
   const { yo, jornadas, go } = ctx;
   const j = proxima(jornadas);
-  const [d, setD] = useState(null);
-  const [avisos, setAvisos] = useState([]);
   const [modal, setModal] = useState(null);
-  const cargar = useCallback(() => { if (j && inscribible(j)) cargarJornada(j.id, yo).then(setD); }, [j && j.id]);
-  useEffect(() => { cargar(); sb.from("avisos").select("*").order("creado", { ascending: false }).limit(5).then(({ data }) => setAvisos(data || [])); }, [cargar]);
+  const [d, cargar] = useCache(j && inscribible(j) ? `jor_${j.id}` : null, () => cargarJornadaQ(j.id, yo), [j && j.id]);
+  const [avisosC] = useCache("avisos", () => q(sb.from("avisos").select("*").order("creado", { ascending: false }).limit(5)), []);
+  const avisos = avisosC || [];
 
   let tarjeta;
   if (!j) tarjeta = html`<div class="card"><h3>Temporada terminada</h3><p class="muted">No quedan jornadas en el calendario.</p></div>`;
@@ -493,7 +509,10 @@ function GestionJornada({ ctx, id }) {
 
   const run = async (f) => { setErr(""); setTrabajando(true); try { await f(); } catch (e) { setErr(errTxt(e)); } setTrabajando(false); cargar(); };
   const chk = ({ error }) => { if (error) throw error; };
+  // Partidas que ya no se pueden rehacer: tarjeta empezada o salida apuntada
+  const empezadas = parts.filter((p) => p.marcador_id || p.validada_at || p.salida_hora);
   const generar = () => run(async () => {
+    if (empezadas.length) throw new Error(`No se puede regenerar: ${empezadas.length === 1 ? "la partida " + empezadas[0].numero + " ya tiene" : empezadas.length + " partidas ya tienen"} salida apuntada o tarjeta empezada. Cambia a mano solo lo necesario.`);
     if (parts.length && !confirm("Se borrarán las partidas actuales y se harán de nuevo al azar. ¿Seguir?")) return;
     const { partidas, movidos } = generarHorario(ins, j);
     chk(await sb.from("partidas").delete().eq("jornada_id", j.id));
@@ -509,7 +528,10 @@ function GestionJornada({ ctx, id }) {
     chk(await sb.from("partidas").update({ [campo]: v }).eq("id", p.id));
   });
   const nueva = () => run(async () => chk(await sb.from("partidas").insert({ jornada_id: j.id, numero: (parts.at(-1)?.numero || 0) + 1, franja: parts.at(-1)?.franja || null })));
-  const borrar = (p) => run(async () => chk(await sb.from("partidas").delete().eq("id", p.id)));
+  const borrar = (p) => run(async () => {
+    if (p.marcador_id || p.validada_at || p.salida_hora) throw new Error(`La partida ${p.numero} ya tiene salida apuntada o tarjeta empezada: no se puede borrar.`);
+    chk(await sb.from("partidas").delete().eq("id", p.id));
+  });
   const publicar = (v) => run(async () => {
     chk(await sb.from("jornadas").update({ horario_publicado: v }).eq("id", j.id));
     if (v) chk(await sb.from("avisos").insert({ temporada_id: temporada.id, jornada_id: j.id, tipo: "horario", texto: `Publicado el horario de reservas de la ${nombreJ(j)}.` }));

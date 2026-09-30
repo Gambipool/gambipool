@@ -205,7 +205,8 @@ select.inp{appearance:auto}
 .seg2 button:last-child{border-right:0}.seg2 button.on{background:var(--hd);color:#fff}
 .clw{margin-top:8px;padding-bottom:10px}
 .cl{display:grid;grid-template-columns:36px minmax(0,1fr) 44px 52px;gap:6px;align-items:center;padding:10px 14px;border:0;border-bottom:1px solid var(--line2);font-size:15px;background:#fff;width:100%;text-align:left;font-family:inherit;color:inherit;font-variant-numeric:tabular-nums;cursor:pointer}
-.cl span:nth-child(3),.cl span:nth-child(4){text-align:right}
+.cl span:nth-child(3),.cl span:nth-child(4),.cl span:nth-child(5){text-align:right}
+.cl.p5{grid-template-columns:30px minmax(0,1fr) 40px 40px 42px;gap:5px}
 .cl.h{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--bg);padding:6px 14px;cursor:default}
 .cl .p{font-family:var(--serif);font-weight:700;color:var(--accdark);font-size:14px}
 .cl .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

@@ -24,10 +24,11 @@ function calcRanking(res, cat, miembros, mejores, excluir) {
 }
 async function cargarRanking(temporada, jornadas, conMiembros) {
   const ids = jornadas.map((j) => j.id);
-  const [{ data: res }, dir] = await Promise.all([
-    ids.length ? sb.from("resultados").select("jornada_id, categoria, jugador_id, nombre, total, retirado").in("jornada_id", ids) : { data: [] },
-    conMiembros ? sb.rpc("directorio") : { data: [] },
+  const [res, dirData] = await Promise.all([
+    ids.length ? q(sb.from("resultados").select("jornada_id, categoria, jugador_id, nombre, total, retirado").in("jornada_id", ids)) : [],
+    conMiembros ? q(sb.rpc("directorio")) : [],
   ]);
+  const dir = { data: dirData };
   const mejores = (temporada.reglas && temporada.reglas.mejores_resultados) || 10;
   const cerradas = jornadas.filter((j) => (res || []).some((r) => r.jornada_id === j.id)).sort((a, b) => a.fecha.localeCompare(b.fecha));
   const ultima = cerradas.length >= 2 ? cerradas[cerradas.length - 1] : null;
@@ -40,6 +41,7 @@ async function cargarRanking(temporada, jornadas, conMiembros) {
   });
   return { R, res: res || [], mejores, ultima: cerradas[cerradas.length - 1] || null };
 }
+const claveRanking = (temporada, jornadas, conMiembros) => `rk_${temporada.id}_${conMiembros ? 1 : 0}_${jornadas.filter((j) => j.cerrada).length}`;
 
 /* ---------- Pestaña Clasificación ---------- */
 function Clasificacion({ ctx }) {
@@ -86,26 +88,25 @@ function ClasJornada({ ctx, j, cat }) {
 
 function ResultadoJornada({ ctx, j, cat }) {
   const { yo, go } = ctx;
-  const [rs, setRs] = useState(null);
-  useEffect(() => { sb.from("resultados").select("*").eq("jornada_id", j.id).eq("categoria", cat).then(({ data }) => setRs(data || [])); }, [j.id, cat]);
+  const [rs] = useCache(`res_${j.id}_${cat}`, () => q(sb.from("resultados").select("*").eq("jornada_id", j.id).eq("categoria", cat)), [j.id, cat]);
   if (!rs) return html`<${Spinner}/>`;
   if (!rs.length) return html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Sin resultados.</p></div>`;
   const ok = rs.filter((r) => !r.retirado).sort((a, b) => a.posicion - b.posicion), ret = rs.filter((r) => r.retirado);
   const empate = (r) => ok.filter((x) => x.resultado === r.resultado).length > 1;
   const me = (r) => r.jugador_id === yo.id || r.nombre === yo.nombre_corto;
   return html`<div class="clw">
-    <div class="cl h"><span>#</span><span>Jugador</span><span>Hcp</span><span>${cat === "scratch" ? "Bruto" : "Neto"}</span></div>
-    ${ok.map((r) => html`<button key=${r.id} class=${"cl" + (me(r) ? " me" : "")} onClick=${() => r.jugador_id && go("tarjeta-jugador", `${j.id}|${r.jugador_id}|${cat}`)}>
-      <span class="p">${r.posicion}</span><span class="nm">${r.nombre}</span><span class=${"mu" + (empate(r) ? " de" : "")}>${numES(r.hcp_exacto)}</span><span><b>${r.resultado ?? "—"}</b></span></button>`)}
-    ${ret.map((r) => html`<div key=${r.id} class="cl ret"><span class="p">—</span><span class="nm">${r.nombre}</span><span class="mu">${numES(r.hcp_exacto)}</span><span>Ret.</span></div>`)}
+    <div class="cl p5 h"><span>#</span><span>Jugador</span><span>Hcp</span><span>${cat === "scratch" ? "Bruto" : "Neto"}</span><span>Pts</span></div>
+    ${ok.map((r) => html`<button key=${r.id} class=${"cl p5" + (me(r) ? " me" : "")} onClick=${() => r.jugador_id && go("tarjeta-jugador", `${j.id}|${r.jugador_id}|${cat}`)}>
+      <span class="p">${r.posicion}</span><span class="nm">${r.nombre}</span><span class=${"mu" + (empate(r) ? " de" : "")}>${numES(r.hcp_exacto)}</span><span>${r.resultado ?? "—"}</span><span><b>${numPts(r.total)}</b></span></button>`)}
+    ${ret.map((r) => html`<div key=${r.id} class="cl p5 ret"><span class="p">—</span><span class="nm">${r.nombre}</span><span class="mu">${numES(r.hcp_exacto)}</span><span>Ret.</span><span>${numPts(r.total)}</span></div>`)}
   </div>`;
 }
 
 async function cargarDirecto(j) {
-  const [{ data: ins }, { data: est }, { data: dir }] = await Promise.all([
-    sb.rpc("inscritos", { p_jornada: j.id }),
-    sb.from("inscripciones").select("id, retirado, bruto_manual, partida_id").eq("jornada_id", j.id).eq("estado", "inscrito"),
-    sb.rpc("directo", { p_jornada: j.id }),
+  const [ins, est, dir] = await Promise.all([
+    q(sb.rpc("inscritos", { p_jornada: j.id })),
+    q(sb.from("inscripciones").select("id, retirado, bruto_manual, partida_id").eq("jornada_id", j.id).eq("estado", "inscrito")),
+    q(sb.rpc("directo", { p_jornada: j.id })),
   ]);
   const parTot = ((await cargarHoyos(j.campo)) || []).reduce((s, h) => s + h.par, 0) || 72;
   return (ins || []).map((x) => {
@@ -119,9 +120,9 @@ async function cargarDirecto(j) {
 
 function Directo({ ctx, j, cat }) {
   const { yo, go } = ctx;
-  const [ls, setLs] = useState(null);
+  const [ls, setLs] = useState(() => cacheLeer(`dir_${j.id}`) || null);
   useEffect(() => {
-    const f = () => !document.hidden && cargarDirecto(j).then(setLs);
+    const f = () => !document.hidden && cargarDirecto(j).then((v) => { cacheGuardar(`dir_${j.id}`, v, false); setLs(v); }).catch(() => {});
     f(); const t = setInterval(f, 30000); return () => clearInterval(t);
   }, [j.id]);
   if (!ls) return html`<${Spinner}/>`;
@@ -184,8 +185,8 @@ function TarjetaJugador({ ctx, p }) {
 /* ---------- Ranking de la temporada ---------- */
 function Ranking({ ctx, temporada, jornadas, cat }) {
   const { yo, go } = ctx;
-  const [d, setD] = useState(null);
-  useEffect(() => { cargarRanking(temporada, jornadas, temporada.id === ctx.temporada.id).then(setD); }, [temporada.id, jornadas.length]);
+  const con = temporada.id === ctx.temporada.id;
+  const [d] = useCache(claveRanking(temporada, jornadas, con), () => cargarRanking(temporada, jornadas, con), [temporada.id, jornadas.length]);
   if (!d) return html`<${Spinner}/>`;
   const L = d.R[cat];
   if (!L.length) return html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Todavía no hay puntos.</p></div>`;
@@ -220,7 +221,7 @@ function RankingJugador({ ctx, p }) {
   const sinEnlace = yo.es_admin && rs.length > 0 && !rs.some((r) => r.jugador_id);
   const enlazar = async (id) => {
     const jg = jugs.find((x) => x.id === id); if (!jg || !confirm(`¿Unir los resultados de "${nombre}" con ${jg.nombre_corto}?`)) return;
-    const { error } = await sb.from("resultados").update({ jugador_id: jg.id, nombre: jg.nombre_corto }).eq("nombre", nombre);
+    const { error } = await sb.from("resultados").update({ jugador_id: jg.id, nombre: jg.nombre_corto }).eq("nombre", nombre).is("jugador_id", null);
     setMsg(error ? errTxt(error) : `Unido con ${jg.nombre_corto}. Vuelve al ranking.`);
   };
   return html`<div>
@@ -239,18 +240,15 @@ function RankingJugador({ ctx, p }) {
 /* ---------- Inicio: tu resultado tras la última jornada ---------- */
 function TuResultado({ ctx }) {
   const { yo, temporada, jornadas, setTab } = ctx;
-  const [d, setD] = useState(null);
   const ult = [...jornadas].filter((j) => j.cerrada && inscribible(j)).sort((a, b) => a.fecha.localeCompare(b.fecha)).pop();
-  useEffect(() => { if (!ult) return; (async () => {
-    let [{ data: mis }, rk] = await Promise.all([
-      sb.from("resultados").select("*").eq("jornada_id", ult.id),
-      cargarRanking(temporada, jornadas.filter((j) => inscribible(j) && j.numero), true),
-    ]);
-    const esYo = (r) => r.jugador_id === yo.id || r.nombre === yo.nombre_corto;
-    mis = (mis || []).filter(esYo);
+  const lista = jornadas.filter((j) => inscribible(j) && j.numero);
+  const [rk] = useCache(ult ? claveRanking(temporada, lista, true) : null, () => cargarRanking(temporada, lista, true), [ult && ult.id]);
+  const [mis] = useCache(ult ? `mires_${ult.id}` : null, async () => (await q(sb.from("resultados").select("*").eq("jornada_id", ult.id))).filter((r) => r.jugador_id === yo.id || r.nombre === yo.nombre_corto), [ult && ult.id]);
+  const d = useMemo(() => {
+    if (!rk || !mis) return null;
     const pos = (cat) => (rk.R[cat].find((o) => o.jid === yo.id || o.n === yo.nombre_corto) || null);
-    setD({ s: (mis || []).find((r) => r.categoria === "scratch"), h: (mis || []).find((r) => r.categoria === "handicap"), rs: pos("scratch"), rh: pos("handicap") });
-  })(); }, [ult && ult.id]);
+    return { s: mis.find((r) => r.categoria === "scratch"), h: mis.find((r) => r.categoria === "handicap"), rs: pos("scratch"), rh: pos("handicap") };
+  }, [rk, mis]);
   if (!ult || !d || (!d.rs && !d.s)) return null;
   const cel = (r, t) => html`<div><b>${r ? (r.retirado ? "Ret." : r.posicion + "º") : "—"}</b><span>${t}${r && !r.retirado ? " · " + r.resultado : ""}</span></div>`;
   return html`<div class="card"><span class="tag gold">Tu resultado · ${nombreJ(ult)}</span>
