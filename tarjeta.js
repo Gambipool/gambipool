@@ -78,7 +78,7 @@ function TarjetaTab({ ctx }) {
   useEffect(() => { if (!j) return; sb.from("inscripciones").select("id, partida_id, estado").eq("jornada_id", j.id).eq("jugador_id", yo.id).maybeSingle().then(({ data }) => setMia(data && data.estado === "inscrito" ? data : null)); }, [j && j.id]);
   if (!j) { const p = proxima(jornadas); return html`<div class="card"><h3>Hoy no hay jornada</h3><p class="muted" style=${{ margin: 0 }}>${p ? `La próxima es la ${nombreJ(p)}, el ${fmtDiaLargo(p.fecha).toLowerCase()}.` : "No quedan jornadas en el calendario."}</p></div>`; }
   if (mia === undefined) return html`<${Spinner}/>`;
-  if (!mia) return html`<div class="card"><h3>${nombreJ(j)} · hoy</h3><p class="muted" style=${{ margin: 0 }}>No estás inscrito en esta jornada.</p></div>`;
+  if (!mia) return html`<div class="card"><h3>${nombreJ(j)} · hoy</h3><p class="muted" style=${{ margin: 0 }}>No estás inscrito en esta jornada.</p><button class="btn sec" style=${{ marginTop: "12px" }} onClick=${() => ctx.setTab("clasificacion")}>Ver el directo</button></div>`;
   if (!mia.partida_id) return html`<div class="card"><h3>${nombreJ(j)} · hoy</h3><p class="muted" style=${{ margin: 0 }}>Todavía no estás en ninguna partida. Habla con el comité.</p></div>`;
   return html`<${Tarjeta} key=${mia.partida_id} ctx=${ctx} pid=${mia.partida_id}/>`;
 }

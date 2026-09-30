@@ -194,12 +194,13 @@ async function calcEstadisticas(T) {
       if (d <= -2) cnt.eag[n] = (cnt.eag[n] || 0) + 1;
       if (d >= 3) cnt.tri[n] = (cnt.tri[n] || 0) + 1; });
     const tee = (P[x.partida_id] || {}).salida_tee; let r = 0, ini = null;
-    ordenHoyos(tee).forEach((h) => { const g = mg[h]; if (g && g - par(h) <= -1) { if (!r) ini = h; r++; if (r >= 2) rachas.push({ n, v: r, j, a: ini, b: h }); } else r = 0; });
+    ordenHoyos(tee).forEach((h) => { const g = mg[h]; if (g && g - par(h) <= 0) { if (!r) ini = h; r++; if (r >= 2) rachas.push({ n, v: r, j, a: ini, b: h }); } else r = 0; });
   });
   const top = (o, k) => Object.entries(o).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, k);
   const maxR = rachas.reduce((m, x) => Math.max(m, x.v), 0);
   const racha = rachas.filter((x) => x.v === maxR).filter((x, i, a) => a.findIndex((y) => y.n === x.n && y.j.id === x.j.id) === i);
-  const mejor = (cat) => { const v = res.filter((r) => r.categoria === cat && !r.retirado && r.resultado != null); const m = Math.min(...v.map((r) => r.resultado)); return v.filter((r) => r.resultado === m).map((r) => ({ n: r.nombre, v: m, j: J[r.jornada_id] })); };
+  const extremo = (cat, f) => { const v = res.filter((r) => r.categoria === cat && !r.retirado && r.resultado != null); if (!v.length) return []; const m = f(...v.map((r) => r.resultado)); return v.filter((r) => r.resultado === m).map((r) => ({ n: r.nombre, v: m, j: J[r.jornada_id] })); };
+  const mejor = (cat) => extremo(cat, Math.min), peor = (cat) => extremo(cat, Math.max);
   // Lentos: salida → último hoyo anotado, media por jugador, mínimo 3 partidas
   const dur = {};
   parts.forEach((p) => {
@@ -209,7 +210,7 @@ async function calcEstadisticas(T) {
     xs.forEach((x) => { const n = nom[x.jugador_id]; if (n) (dur[n] = dur[n] || []).push(min); });
   });
   const lentos = Object.entries(dur).filter(([, v]) => v.length >= 3).map(([n, v]) => [n, v.reduce((a, b) => a + b, 0) / v.length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  return { bir: top(cnt.bir, 3), tri: top(cnt.tri, 3), eag: top(cnt.eag, 1).filter(([, v]) => v > 0), racha, ace, ms: mejor("scratch"), mh: mejor("handicap"), lentos };
+  return { bir: top(cnt.bir, 3), tri: top(cnt.tri, 3), eag: top(cnt.eag, 1).filter(([, v]) => v > 0), racha, ace, ms: mejor("scratch"), mh: mejor("handicap"), ps: peor("scratch"), ph: peor("handicap"), lentos };
 }
 function Estadisticas({ ctx }) {
   const { yo } = ctx;
@@ -222,11 +223,13 @@ function Estadisticas({ ctx }) {
     ${err ? html`<div class="err" style=${{ margin: "12px" }}>${err}</div>` : d === undefined ? html`<${Spinner}/>` : !d ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Todavía no hay jornadas cerradas.</p></div>` : html`<div>
       <${Caja} t="Más birdies" filas=${d.bir}/>
       <${Caja} t="Más eagles" filas=${d.eag}/>
-      <${Caja} t="Más birdies seguidos" filas=${d.racha.map((x) => [x.n, x.v, `${nombreJ(x.j)} · hoyos ${x.a}–${x.b}`])}/>
+      <${Caja} t="Más pares seguidos" filas=${d.racha.map((x) => [x.n, x.v, `${nombreJ(x.j)} · hoyos ${x.a}–${x.b}`])}/>
       <${Caja} t="Hoyos en uno" filas=${d.ace.map((x) => [x.n, "Hoyo " + x.h, nombreJ(x.j)])}/>
       <${Caja} t="Más triple bogeys" filas=${d.tri}/>
       <${Caja} t="Mejor vuelta scratch" filas=${d.ms.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Mejor vuelta hándicap" filas=${d.mh.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
+      <${Caja} t="Peor vuelta scratch" filas=${d.ps.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
+      <${Caja} t="Peor vuelta hándicap" filas=${d.ph.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Los más lentos" filas=${d.lentos.map(([n, m]) => [n, hm2(m)])}/>
     </div>`}
   </div>`;

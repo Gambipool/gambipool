@@ -102,22 +102,16 @@ function ResultadoJornada({ ctx, j, cat }) {
 }
 
 async function cargarDirecto(j) {
-  const [{ data: ins }, { data: est }, { data: parts }, hoyos] = await Promise.all([
+  const [{ data: ins }, { data: est }, { data: dir }] = await Promise.all([
     sb.rpc("inscritos", { p_jornada: j.id }),
     sb.from("inscripciones").select("id, retirado, bruto_manual, partida_id").eq("jornada_id", j.id).eq("estado", "inscrito"),
-    sb.from("partidas").select("id, numero, salida_tee, validada_at").eq("jornada_id", j.id),
-    cargarHoyos(j.campo),
+    sb.rpc("directo", { p_jornada: j.id }),
   ]);
-  const ids = (est || []).map((x) => x.id);
-  const { data: gs } = ids.length ? await sb.from("golpes").select("inscripcion_id, hoyo, golpes").in("inscripcion_id", ids) : { data: [] };
-  const H = {}; hoyos.forEach((h) => (H[h.hoyo] = h));
-  const parTot = hoyos.reduce((s, h) => s + h.par, 0) || 72;
-  const G = {}; (gs || []).forEach((g) => (G[g.inscripcion_id] = G[g.inscripcion_id] || []).push(g));
+  const parTot = ((await cargarHoyos(j.campo)) || []).reduce((s, h) => s + h.par, 0) || 72;
   return (ins || []).map((x) => {
     const e = (est || []).find((y) => y.id === x.inscripcion_id) || {};
-    const gg = G[x.inscripcion_id] || [];
-    let rb = 0, rn = 0; gg.forEach((g) => { const h = H[g.hoyo]; if (!h) return; rb += g.golpes - h.par; rn += g.golpes - h.par - recibe(x.hcp_juego, h.hcp); });
-    let thru = gg.length;
+    const d = (dir || []).find((y) => y.inscripcion_id === x.inscripcion_id) || {};
+    let thru = d.hoyos || 0, rb = d.rel_bruto || 0, rn = d.rel_neto || 0;
     if (e.bruto_manual != null) { thru = 18; rb = e.bruto_manual - parTot; rn = e.bruto_manual - (x.hcp_juego || 0) - parTot; }
     return { ...x, retirado: e.retirado, thru, rb, rn };
   });
@@ -135,7 +129,8 @@ function Directo({ ctx, j, cat }) {
   const jugando = ls.filter((x) => !x.retirado && x.thru > 0).sort((a, b) => a[k] - b[k] || b.thru - a.thru || a.nombre_corto.localeCompare(b.nombre_corto));
   const pos = posiciones(jugando, (x) => x[k]);
   const sin = ls.filter((x) => !x.retirado && x.thru === 0), ret = ls.filter((x) => x.retirado);
-  const me = (x) => x.jugador_id === yo.id;
+  const mia = (ls.find((x) => x.jugador_id === yo.id) || {}).partida_id;
+  const me = (x) => x.jugador_id === yo.id || (mia != null && x.partida_id === mia);
   return html`<div class="clw">
     <div class="live"><span class="dotl"></span>En directo</div>
     <div class="cl h"><span>#</span><span>Jugador</span><span>Hoyos</span><span>${cat === "scratch" ? "Bruto" : "Neto"}</span></div>
@@ -150,7 +145,7 @@ function Directo({ ctx, j, cat }) {
 function TarjetaJugador({ ctx, p }) {
   const [jid, uid, cat] = p.split("|");
   const [d, setD] = useState(null);
-  useEffect(() => { (async () => {
+  useEffect(() => { let t = null, vivo = true; const cargar = async () => {
     const { data: j } = await sb.from("jornadas").select("*").eq("id", +jid).single();
     const [{ data: ins }, { data: rs }, hoyos] = await Promise.all([
       sb.rpc("inscritos", { p_jornada: +jid }),
@@ -163,8 +158,11 @@ function TarjetaJugador({ ctx, p }) {
       const [{ data: gs }, { data: e }] = await Promise.all([sb.from("golpes").select("hoyo, golpes").eq("inscripcion_id", x.inscripcion_id), sb.from("inscripciones").select("retirado, bruto_manual").eq("id", x.inscripcion_id).single()]);
       golpes = { [x.inscripcion_id]: Object.fromEntries((gs || []).map((g) => [g.hoyo, g.golpes])) }; est = e || {};
     }
+    if (!vivo) return;
     setD({ j, x: x ? { ...x, ...est, ini: "Golpes" } : null, r: (rs || [])[0], golpes, hoyos });
-  })(); }, [p]);
+    // jornada en juego: se actualiza sola cada 30 s, como el directo
+    if (!j.cerrada && !t) t = setInterval(() => !document.hidden && cargar(), 30000);
+  }; cargar(); return () => { vivo = false; t && clearInterval(t); }; }, [p]);
   if (!d) return html`<${Spinner}/>`;
   const { j, x, r, golpes, hoyos } = d;
   const nombre = (x && x.nombre_corto) || (r && r.nombre) || "";
