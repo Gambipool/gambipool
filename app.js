@@ -31,7 +31,7 @@ const I = {
 function Cabecera({ sub, titulo, onBack, backTxt = "Volver", admin, onComite }) {
   return html`<header class="hd">
     ${onBack && html`<button class="back" onClick=${onBack}>‹ ${backTxt}</button>`}
-    ${sub && html`<small>${sub}</small>`}<h1>${titulo}</h1>
+    ${sub && html`<small>${sub}</small>`}<h1 class=${String(titulo || "").length > 44 ? "largo" : String(titulo || "").length > 28 ? "medio" : ""}>${titulo}</h1>
     ${admin && html`<button class="lock" aria-label="Panel del comité" onClick=${onComite}>${I.lock}</button>`}
   </header>`;
 }
@@ -228,18 +228,18 @@ function EditarJugador({ temporada, id, volver, yo }) {
   const [guardando, setGuardando] = useState(false);
   useEffect(() => {
     (async () => {
-      if (!id) return setJ({ nombre: "", nombre_corto: "", email: "", movil: "", licencia: "", es_admin: false, estado: "activo", pagado: false });
+      if (!id) return setJ({ nombre: "", nombre_corto: "", email: "", movil: "", licencia: "", cats: [], es_admin: false, estado: "activo", pagado: false });
       const { data, error } = await sb.from("jugadores").select("*, jugador_temporada(temporada_id, estado, pagado)").eq("id", id).single();
       if (error) return setErr(errTxt(error));
       const jt = (data.jugador_temporada || []).find((x) => x.temporada_id === temporada.id);
-      setJ({ ...data, movil: data.movil || "", licencia: data.licencia || "", estado: jt ? jt.estado : "activo", pagado: jt ? jt.pagado : false });
+      setJ({ ...data, movil: data.movil || "", licencia: data.licencia || "", cats: data.saludo_cats || [], estado: jt ? jt.estado : "activo", pagado: jt ? jt.pagado : false });
     })();
   }, [id]);
   if (!j) return err ? html`<div class="err" style=${{"margin": "12px"}}>${err}</div>` : html`<${Spinner}/>`;
   const set = (k) => (e) => setJ({ ...j, [k]: e && e.target ? e.target.value : e });
   const guardar = async () => {
     setErr("");
-    const d = { nombre: j.nombre.trim(), nombre_corto: j.nombre_corto.trim() || j.nombre.trim(), email: j.email.trim().toLowerCase(), movil: j.movil.trim() || null, licencia: j.licencia.trim() || null, es_admin: !!j.es_admin };
+    const d = { nombre: j.nombre.trim(), nombre_corto: j.nombre_corto.trim() || j.nombre.trim(), email: j.email.trim().toLowerCase(), movil: j.movil.trim() || null, licencia: j.licencia.trim() || null, es_admin: !!j.es_admin, saludo_cats: j.cats || [] };
     if (!d.nombre) return setErr("Falta el nombre y apellidos.");
     if (!emailValido(d.email)) return setErr("El email no es válido.");
     setGuardando(true);
@@ -260,6 +260,7 @@ function EditarJugador({ temporada, id, volver, yo }) {
     <label class="l">Email</label><input class="inp" type="email" autocapitalize="off" value=${j.email} onInput=${set("email")} />
     <label class="l">Móvil</label><input class="inp" type="tel" value=${j.movil} onInput=${set("movil")} />
     <label class="l">Nº de licencia</label><input class="inp" value=${j.licencia} onInput=${set("licencia")} />
+    <label class="l">Saludos en Inicio</label><${CatsSaludo} sel=${j.cats || []} onChange=${(c) => setJ({ ...j, cats: c })}/>
     <label class="l">Estado en ${temporada.nombre}</label>
     <div class="seg">${Object.entries(ESTADOS).map(([k, l]) => html`<button type="button" key=${k} class=${j.estado === k ? "on" : ""} onClick=${() => setJ({ ...j, estado: k })}>${l}</button>`)}</div>
     <${Toggle} on=${j.pagado} onChange=${(v) => setJ({ ...j, pagado: v })} label=${`Inscripción pagada (${(temporada.reglas && temporada.reglas.cuota) || 150} €)`} />
@@ -426,6 +427,14 @@ function Importar({ temporada, volver, yo }) {
 }
 
 /* ---------- App ---------- */
+let saludoElegido = null;
+const saludoDe = (yo) => (saludoElegido || "Hola, " + yo.nombre_corto.split(" ")[0]);
+async function elegirSaludo(yo) {
+  saludoElegido = null;
+  const cats = yo.saludo_cats || []; if (!cats.length) return;
+  const { data } = await sb.from("saludos").select("frase").in("categoria", cats);
+  if (data && data.length) saludoElegido = data[Math.floor(Math.random() * data.length)].frase.replace(/\{nombre\}/g, yo.nombre_corto.split(" ")[0]);
+}
 function App() {
   const [session, setSession] = useState(undefined);
   const [yo, setYo] = useState(undefined);
@@ -455,6 +464,7 @@ function App() {
     const { data, error } = await sb.rpc("mi_jugador");
     if (error) { setErrGlobal(errTxt(error)); setYo(null); return; }
     const y = Array.isArray(data) ? data[0] : data;
+    if (y && y.id) await elegirSaludo(y);
     setYo(y && y.id ? y : null);
     const { data: t } = await sb.from("temporadas").select("*").eq("activa", true).maybeSingle();
     setTemporada(t || null);
@@ -485,8 +495,8 @@ function App() {
       gestion: top.p ? jTit(top.p) : "", jornada: top.p ? jTit(top.p) : "", inscribir: "Inscripción",
       editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel",
       "tarjeta-comite": "Tarjeta", "comite-tarjetas": top.p ? jTit(top.p) : "", brutos: "Brutos a mano", "tarjeta-jugador": "Tarjeta",
-      "ranking-jugador": typeof top.p === "string" ? top.p.split("|")[2] : "", reglamento: "Reglamento", contabilidad: "Contabilidad", estadisticas: "Estadísticas", palmares: "Palmarés", "comite-temporadas": "Temporadas" };
-    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar", "tarjeta-comite", "comite-tarjetas", "brutos", "comite-temporadas"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
+      "ranking-jugador": typeof top.p === "string" ? top.p.split("|")[2] : "", reglamento: "Reglamento", contabilidad: "Contabilidad", estadisticas: "Estadísticas", palmares: "Palmarés", "comite-temporadas": "Temporadas", "comite-saludos": "Saludos" };
+    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar", "tarjeta-comite", "comite-tarjetas", "brutos", "comite-temporadas", "comite-saludos"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
     cab = html`<${Cabecera} sub=${sub} titulo=${T[top.v]} onBack=${atras} />`;
     const volverRecargando = () => atras();
     if (top.v === "directorio") cuerpo = html`<${Directorio}/>`;
@@ -507,6 +517,7 @@ function App() {
     else if (top.v === "comite-avisos") cuerpo = html`<${ComiteAvisos} ctx=${ctx}/>`;
     else if (top.v === "editar-jornada") cuerpo = html`<${EditarJornada} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "gestion") cuerpo = html`<${GestionJornada} ctx=${ctx} id=${top.p}/>`;
+    else if (top.v === "comite-saludos") cuerpo = html`<${ComiteSaludos}/>`;
     else if (top.v === "comite-temporadas") cuerpo = html`<${ComiteTemporadas} ctx=${ctx}/>`;
     else if (top.v === "comite-tarjetas") cuerpo = html`<${ComiteTarjetas} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "tarjeta-comite") cuerpo = html`<${Tarjeta} ctx=${ctx} pid=${top.p} comite=${true}/>`;
@@ -515,7 +526,7 @@ function App() {
     else if (top.v === "ficha") cuerpo = html`<${Ficha} key=${top.p + pila.length} temporada=${temporada} id=${top.p} go=${go} volver=${volverRecargando}/>`;
     else if (top.v === "importar") cuerpo = html`<${Importar} temporada=${temporada} yo=${yo} volver=${volverRecargando}/>`;
   } else {
-    const T = { inicio: "Hola, " + yo.nombre_corto.split(" ")[0], calendario: "Calendario", tarjeta: "Tarjeta", clasificacion: "Clasificación", pool: "La Pool" };
+    const T = { inicio: saludoDe(yo), calendario: "Calendario", tarjeta: "Tarjeta", clasificacion: "Clasificación", pool: "La Pool" };
     cab = html`<${Cabecera} sub="" titulo=${T[tab]} admin=${yo.es_admin} onComite=${() => go("comite-hub")} />`;
     if (!temporada) cuerpo = html`<div class="card"><p class="muted">No hay temporada activa.</p></div>`;
     else if (tab === "inicio") cuerpo = html`<${Inicio2} ctx=${ctx}/>`;

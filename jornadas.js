@@ -382,7 +382,7 @@ function Inicio2({ ctx }) {
 
 /* ---------- Comité ---------- */
 function ComiteHub({ ctx }) {
-  const items = [["comite-jugadores", "Jugadores", "Altas, fichas, pagos y amarillas"], ["comite-calendario", "Calendario", "Jornadas, plazos, inscritos y horarios"], ["comite-avisos", "Avisos", "Mensajes para todos en Inicio"], ["comite-temporadas", "Temporadas", "Reglas y nueva temporada"]];
+  const items = [["comite-jugadores", "Jugadores", "Altas, fichas, pagos y amarillas"], ["comite-calendario", "Calendario", "Jornadas, plazos, inscritos y horarios"], ["comite-avisos", "Avisos", "Mensajes para todos en Inicio"], ["comite-temporadas", "Temporadas", "Reglas y nueva temporada"], ["comite-saludos", "Saludos", "Frases de Inicio por categoría"]];
   return html`<div class="list" style=${{ marginTop: "12px" }}>${items.map(([k, t, s]) => html`<button class="row" key=${k} onClick=${() => ctx.go(k)}><span class="n">${t}<small>${s}</small></span><span aria-hidden="true">›</span></button>`)}</div>`;
 }
 

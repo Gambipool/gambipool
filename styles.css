@@ -233,3 +233,6 @@ select.inp{appearance:auto}
 .card.stc{padding:8px 14px}.card.stc h3{font-size:16px;margin:4px 0 2px}.pp{font-family:var(--serif);color:var(--accdark);margin-right:8px}
 .kv.mek{background:var(--hl);margin:0 -8px;padding:8px}
 .cl.pal{grid-template-columns:60px 1fr 1fr}.cl.pal span{text-align:left!important}
+.hd h1{padding-right:34px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:14px;color:var(--ink);cursor:pointer}.chips button.on{background:var(--hd);color:#fff;border-color:var(--hd)}
+.hd h1.medio{font-size:21px;line-height:1.2}.hd h1.largo{font-size:18px;line-height:1.25}

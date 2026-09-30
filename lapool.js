@@ -285,3 +285,41 @@ function ComiteTemporadas({ ctx }) {
       <button class="btn" disabled=${trab} onClick=${guardar}>${modo.nueva ? "Crear temporada " + sig : "Guardar"}</button><button class="btn sec" onClick=${() => setModo(null)}>Cancelar</button></div></div>`}
   </div>`;
 }
+
+/* ---------- Saludos de Inicio ---------- */
+function CatsSaludo({ sel, onChange }) {
+  const [cats, setCats] = useState(null);
+  useEffect(() => { sb.from("saludos").select("categoria").then(({ data }) => setCats([...new Set((data || []).map((x) => x.categoria))].sort((a, b) => a.localeCompare(b)))); }, []);
+  if (!cats) return html`<${Spinner}/>`;
+  if (!cats.length) return html`<p class="muted">No hay categorías de saludos.</p>`;
+  const tog = (c) => onChange(sel.includes(c) ? sel.filter((x) => x !== c) : [...sel, c]);
+  return html`<div class="chips">${cats.map((c) => html`<button type="button" key=${c} class=${sel.includes(c) ? "on" : ""} onClick=${() => tog(c)}>${c}</button>`)}</div>`;
+}
+
+function ComiteSaludos() {
+  const [ls, setLs] = useState(null); const [edit, setEdit] = useState(null); const [err, setErr] = useState("");
+  const cargar = () => sb.from("saludos").select("*").order("categoria").order("id").then(({ data }) => setLs(data || []));
+  useEffect(() => { cargar(); }, []);
+  if (!ls) return html`<${Spinner}/>`;
+  const cats = [...new Set(ls.map((x) => x.categoria))];
+  const guardar = async () => {
+    setErr(""); const d = { categoria: edit.categoria.trim(), frase: edit.frase.trim() };
+    if (!d.categoria || !d.frase) return setErr("Falta la categoría o la frase.");
+    const { error } = edit.id ? await sb.from("saludos").update(d).eq("id", edit.id) : await sb.from("saludos").insert(d);
+    if (error) return setErr(errTxt(error)); setEdit(null); cargar();
+  };
+  const borrar = async () => { if (!confirm("¿Borrar esta frase?")) return; await sb.from("saludos").delete().eq("id", edit.id); setEdit(null); cargar(); };
+  return html`<div>
+    <p class="muted" style=${{ margin: "12px 14px 0" }}>{nombre} se cambia por el nombre del jugador. Las categorías de cada jugador se eligen en su ficha.</p>
+    ${cats.map((c) => html`<div class="card" key=${c}><h3>${c}</h3>
+      ${ls.filter((x) => x.categoria === c).map((x) => html`<div class="kv" key=${x.id}><button class="lnk" onClick=${() => setEdit({ ...x })}>${x.frase}</button></div>`)}
+      <button class="btn sec small" style=${{ marginTop: "8px" }} onClick=${() => setEdit({ categoria: c, frase: "" })}>+ Frase</button></div>`)}
+    <div style=${{ margin: "0 12px 20px" }}><button class="btn" onClick=${() => setEdit({ categoria: "", frase: "", nueva: true })}>+ Nueva categoría</button></div>
+    ${edit && html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && setEdit(null)}><div class="sheet"><h3>${edit.id ? "Editar frase" : edit.nueva ? "Nueva categoría" : "Nueva frase"}</h3>
+      <label class="l">Categoría</label><input class="inp" value=${edit.categoria} disabled=${!edit.nueva && !edit.id} onInput=${(e) => setEdit({ ...edit, categoria: e.target.value })}/>
+      <label class="l">Frase</label><textarea class="inp" rows="3" value=${edit.frase} onInput=${(e) => setEdit({ ...edit, frase: e.target.value })}></textarea>
+      ${err && html`<div class="err">${err}</div>`}<button class="btn" onClick=${guardar}>Guardar</button>
+      ${edit.id && html`<button class="btn sec" style=${{ color: "var(--warn)", borderColor: "var(--warn)" }} onClick=${borrar}>Borrar</button>`}
+      <button class="btn sec" onClick=${() => setEdit(null)}>Cancelar</button></div></div>`}
+  </div>`;
+}
