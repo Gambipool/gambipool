@@ -556,7 +556,7 @@ function App() {
     let vivo = true, t = null;
     (window.__bv || Promise.resolve(false)).then((pintada) => {
       if (!vivo) return;
-      t = setTimeout(() => { el.classList.add("fuera"); setTimeout(() => { el.remove(); document.documentElement.classList.remove("bv"); window.__empujon && window.__empujon(); }, 700); }, pintada ? 1500 : 0);
+      t = setTimeout(() => { el.classList.add("fuera"); setTimeout(() => { el.remove(); document.documentElement.classList.remove("bv"); }, 700); }, pintada ? 1500 : 0);
     });
     return () => { vivo = false; t && clearTimeout(t); };
   }, [listo]);
