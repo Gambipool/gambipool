@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="preload" as="image" href="casaclub.jpg">
-<link rel="stylesheet" href="styles.css?v=25">
+<link rel="stylesheet" href="styles.css?v=26">
 </head>
 <body>
 <div id="splash"><div class="bv-f"></div><div class="bv-foto"></div><div class="bv-g"></div>
@@ -39,14 +39,20 @@
 })();
 </script>
 <div id="root"></div>
+<script>
+/* iOS 26: un scroll de 1 px hace que la app instalada recalcule el alto real de la pantalla (sin franja abajo) */
+window.__empujon = function () { var y = window.scrollY; window.scrollTo(0, y + 1); requestAnimationFrame(function () { window.scrollTo(0, y); }); };
+window.__empujon();
+document.addEventListener("visibilitychange", function () { if (!document.hidden) setTimeout(window.__empujon, 50); });
+</script>
 <script src="vendor/react.production.min.js"></script>
 <script src="vendor/react-dom.production.min.js"></script>
 <script src="vendor/htm.umd.js"></script>
 <script src="vendor/supabase.js"></script>
-<script src="app.js?v=25"></script>
-<script src="tarjeta.js?v=25"></script>
-<script src="clasif.js?v=25"></script>
-<script src="lapool.js?v=25"></script>
-<script src="jornadas.js?v=25"></script>
+<script src="app.js?v=26"></script>
+<script src="tarjeta.js?v=26"></script>
+<script src="clasif.js?v=26"></script>
+<script src="lapool.js?v=26"></script>
+<script src="jornadas.js?v=26"></script>
 </body>
 </html>

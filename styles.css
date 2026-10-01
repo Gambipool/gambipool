@@ -11,6 +11,8 @@ html,body{margin:0;height:100%}
 /* Color de la franja inferior que iOS 26 deja sin pintar en la app instalada: el del menú, el de la pantalla o el de la bienvenida */
 html{background:var(--bg)}html.connav{background:#fff}html.bv{background:#0e1a14}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.4}
+/* iOS 26 (app instalada): si la pantalla no tiene scroll, deja una franja abajo. Con 1 px de más siempre lo tiene */
+body::after{content:"";display:block;height:1px}
 #root{min-height:100%;display:flex;flex-direction:column;max-width:560px;margin:0 auto;background:var(--bg)}
 button,input,select{font:inherit}
 .num{font-variant-numeric:tabular-nums}
