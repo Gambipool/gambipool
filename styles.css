@@ -25,7 +25,7 @@ button,input,select{font:inherit}
 .tabs button{flex:1;background:none;border:0;color:var(--tabdim);font-weight:600;font-size:14px;padding:10px 0;border-bottom:3px solid transparent;cursor:pointer}
 .tabs button.on{color:#fff;border-color:var(--acc)}
 
-main{flex:1;padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+main{flex:1;padding-bottom:calc(var(--navh, calc(80px + env(safe-area-inset-bottom))) + 16px)}
 .card{background:var(--card);margin:12px;border-radius:6px;border:1px solid var(--line);padding:14px}
 .card h3{font-family:var(--serif);margin:0 0 6px;font-size:18px}
 .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:3px;background:var(--soft);color:var(--hd)}
@@ -257,3 +257,6 @@ select.inp{appearance:auto}
 #splash .bv-n{font-family:var(--serif);font-weight:700;font-size:38px}
 #splash .bv-c{font-size:11px;letter-spacing:.12em;white-space:nowrap;text-transform:uppercase;color:#e9d9a8;margin-top:4px}
 @media (min-width:700px){#splash .bv-foto{height:auto;width:min(90vw,900px)}}
+
+/* Franja fija detrás de la hora y la batería (app instalada) */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:var(--hd);z-index:40;pointer-events:none}

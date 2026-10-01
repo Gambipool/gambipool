@@ -15,7 +15,10 @@ const norm = (s = "") => s.toString().normalize("NFD").replace(/[̀-ͯ]/g, "").t
 const emailValido = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const fmtFecha = (d) => (d ? new Date(d).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : "");
 const ESTADOS = { activo: "Activo", espera: "Lista de espera", baja: "Baja" };
-const errTxt = (e) => (e && (e.message || e.error_description || String(e))) || "Error desconocido";
+const errTxt = (e) => {
+  const m = (e && (e.message || e.error_description || String(e))) || "Error desconocido";
+  return /failed to fetch|networkerror|load failed|network request failed/i.test(m) ? "Sin conexión. Comprueba la señal." : m;
+};
 
 /* ---------- Caché: se enseña lo último visto al momento y se actualiza por detrás ---------- */
 const CK = "gp_c1_";
@@ -35,16 +38,17 @@ function cacheBorrar(prefijo) {
 }
 function cacheBorrarTodo() {
   Object.keys(cacheMem).forEach((k) => delete cacheMem[k]);
-  try { Object.keys(localStorage).filter((k) => k.startsWith("gp_c")).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* nada */ }
+  try { Object.keys(localStorage).filter((k) => k.startsWith(CK)).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* nada */ }
 }
 // Lanza el error de Supabase en vez de devolver datos vacíos (así no se guarda en caché un fallo)
 async function q(p) { const { data, error } = await p; if (error) throw error; return data; }
 // Hook: [datos, recargar]. Con clave null no carga nada.
 function useCache(clave, cargar, deps = [], persistir = true) {
   const [d, setD] = useState(() => (clave ? cacheLeer(clave) : undefined));
+  const actual = React.useRef(clave); actual.current = clave;
   const recargar = useCallback(async () => {
     if (!clave) return;
-    try { const v = await cargar(); if (v !== undefined) { cacheGuardar(clave, v, persistir); setD(v); } } catch (e) { /* sin red: se queda lo que había */ }
+    try { const v = await cargar(); if (v !== undefined) { cacheGuardar(clave, v, persistir); if (actual.current === clave) setD(v); } } catch (e) { /* sin red: se queda lo que había */ }
   }, [clave, ...deps]);
   useEffect(() => { setD(clave ? cacheLeer(clave) : undefined); recargar(); }, [recargar]);
   return [d, recargar];
@@ -556,6 +560,21 @@ function App() {
     });
     return () => { vivo = false; t && clearTimeout(t); };
   }, [listo]);
+
+  // iPhone (app instalada): al cerrarse el teclado, a veces el menú y la cabecera se quedan descolocados.
+  // Se obliga a recolocar la pantalla. Y el hueco final de cada pantalla = altura real del menú.
+  useEffect(() => {
+    const recolocar = () => setTimeout(() => window.scrollTo(window.scrollX, window.scrollY), 120);
+    const fuera = (e) => { if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) recolocar(); };
+    document.addEventListener("focusout", fuera);
+    const vv = window.visualViewport; let h0 = vv ? vv.height : 0;
+    const rs = () => { if (vv.height > h0 + 80) recolocar(); h0 = vv.height; };
+    if (vv) vv.addEventListener("resize", rs);
+    let ro = null, mo = null;
+    const medir = () => { const n = document.querySelector(".nav"); if (n) document.documentElement.style.setProperty("--navh", n.offsetHeight + "px"); };
+    if (window.ResizeObserver) { ro = new ResizeObserver(medir); mo = new MutationObserver(() => { const n = document.querySelector(".nav"); if (n) { ro.disconnect(); ro.observe(n); medir(); } }); mo.observe(document.getElementById("root"), { childList: true }); }
+    return () => { document.removeEventListener("focusout", fuera); if (vv) vv.removeEventListener("resize", rs); ro && ro.disconnect(); mo && mo.disconnect(); };
+  }, []);
 
   // Golpes pendientes: se envían al abrir la app y al volver a ella
   useEffect(() => {
