@@ -552,11 +552,11 @@ function App() {
   const listo = session !== undefined && (session === null || yo !== undefined);
   useEffect(() => {
     if (!listo) return;
-    const el = document.getElementById("splash"); if (!el || el.classList.contains("fuera")) return;
+    const el = document.getElementById("splash"); if (!el || el.classList.contains("fuera")) { if (!el) document.documentElement.classList.remove("bv"); return; }
     let vivo = true, t = null;
     (window.__bv || Promise.resolve(false)).then((pintada) => {
       if (!vivo) return;
-      t = setTimeout(() => { el.classList.add("fuera"); setTimeout(() => el.remove(), 700); }, pintada ? 1500 : 0);
+      t = setTimeout(() => { el.classList.add("fuera"); setTimeout(() => { el.remove(); document.documentElement.classList.remove("bv"); }, 700); }, pintada ? 1500 : 0);
     });
     return () => { vivo = false; t && clearTimeout(t); };
   }, [listo]);
@@ -571,9 +571,12 @@ function App() {
     const rs = () => { if (vv.height > h0 + 80) recolocar(); h0 = vv.height; };
     if (vv) vv.addEventListener("resize", rs);
     let ro = null, mo = null;
+    // iOS 26 deja una franja abajo sin pintar: que tenga el color del menú cuando lo hay
+    const fondo = () => document.documentElement.classList.toggle("connav", !!document.querySelector("#root > .nav"));
+    const mf = new MutationObserver(fondo); mf.observe(document.getElementById("root"), { childList: true }); fondo();
     const medir = () => { const n = document.querySelector(".nav"); if (n) document.documentElement.style.setProperty("--navh", n.offsetHeight + "px"); };
     if (window.ResizeObserver) { ro = new ResizeObserver(medir); mo = new MutationObserver(() => { const n = document.querySelector(".nav"); if (n) { ro.disconnect(); ro.observe(n); medir(); } }); mo.observe(document.getElementById("root"), { childList: true }); }
-    return () => { document.removeEventListener("focusout", fuera); if (vv) vv.removeEventListener("resize", rs); ro && ro.disconnect(); mo && mo.disconnect(); };
+    return () => { document.removeEventListener("focusout", fuera); if (vv) vv.removeEventListener("resize", rs); ro && ro.disconnect(); mo && mo.disconnect(); mf.disconnect(); };
   }, []);
 
   // Golpes pendientes: se envían al abrir la app y al volver a ella
