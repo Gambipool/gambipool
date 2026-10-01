@@ -8,8 +8,6 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
-/* Color de la franja inferior que iOS 26 deja sin pintar en la app instalada: el del menú, el de la pantalla o el de la bienvenida */
-html{background:var(--bg)}html.connav{background:#fff}html.bv{background:#0e1a14}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.4}
 #root{min-height:100%;display:flex;flex-direction:column;max-width:560px;margin:0 auto;background:var(--bg)}
 button,input,select{font:inherit}
@@ -260,5 +258,3 @@ select.inp{appearance:auto}
 #splash .bv-c{font-size:11px;letter-spacing:.12em;white-space:nowrap;text-transform:uppercase;color:#e9d9a8;margin-top:4px}
 @media (min-width:700px){#splash .bv-foto{height:auto;width:min(90vw,900px)}}
 
-/* Franja fija detrás de la hora y la batería (app instalada) */
-body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:var(--hd);z-index:40;pointer-events:none}
