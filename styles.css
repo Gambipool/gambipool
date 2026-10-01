@@ -140,7 +140,7 @@ table.prev td,table.prev th{padding:6px 4px;border-bottom:1px solid var(--line2)
 .ed .t{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line2);font-size:13px}
 .ed .t b{font-family:var(--serif);font-size:15px}
 .chip{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line2);font-size:14px}
-.chip .mv{margin-left:auto;font-size:13px;border:1px solid var(--line);border-radius:4px;padding:4px 6px;background:#fff;color:var(--hd);max-width:130px}
+.chip .mv{margin-left:auto;font-size:16px;border:1px solid var(--line);border-radius:4px;padding:4px 6px;background:#fff;color:var(--hd);max-width:130px}
 .edt{font-size:12px;color:var(--muted);padding:8px 12px}
 .edrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line2);background:#fff;font-size:14px}
 textarea.inp{resize:vertical;font-family:inherit}
@@ -237,3 +237,10 @@ select.inp{appearance:auto}
 .hd h1{padding-right:34px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:14px;color:var(--ink);cursor:pointer}.chips button.on{background:var(--hd);color:#fff;border-color:var(--hd)}
 .hd h1.medio{font-size:21px;line-height:1.2}.hd h1.largo{font-size:18px;line-height:1.25}
+/* v0.17: horas del horario como botones, avisos */
+.hl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:6px 0 4px}
+.hrs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.hrs button{border:1px solid var(--line);background:#fff;border-radius:16px;padding:6px 8px;font-size:14px;font-variant-numeric:tabular-nums;color:var(--ink);cursor:pointer;min-width:48px}
+.hrs button.on{background:var(--hd);border-color:var(--hd);color:#fff;font-weight:700}
+.card.warnc{border-left:4px solid var(--warn)}
+.card.wa .btns{margin-top:8px}

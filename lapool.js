@@ -32,7 +32,7 @@ function Perfil({ yo, temporada }) {
       <div class="kv"><span>Email</span><b>${yo.email}</b></div>
       <div class="kv"><span>Móvil</span><b>${yo.movil || "—"}</b></div>
       <div class="kv"><span>Licencia</span><b>${yo.licencia || "—"}</b></div>
-      <div class="kv"><span>Último hándicap</span><b class="num">${yo.ultimo_hcp != null ? String(yo.ultimo_hcp).replace(".", ",") : "—"}</b></div>
+      <div class="kv"><span>Último hándicap</span><b class="num">${numES(yo.ultimo_hcp)}</b></div>
       <p class="muted" style=${{ marginBottom: "0" }}>Si algún dato no es correcto, díselo al comité.</p>
     </div>
     <div class="card"><h3>Tarjetas amarillas ${temporada ? temporada.anio : ""}</h3>
@@ -189,7 +189,7 @@ async function calcEstadisticas(T) {
   const J = {}; jor.forEach((j) => (J[j.id] = j)); const P = {}; parts.forEach((p) => (P[p.id] = p));
   const HO = {}; for (const j of jor) HO[j.campo] = HO[j.campo] || (await cargarHoyos(j.campo));
   const G = {}; gs.forEach((g) => (G[g.inscripcion_id] = G[g.inscripcion_id] || []).push(g));
-  const cnt = { bir: {}, eag: {}, tri: {} }, ace = [], rachas = [];
+  const cnt = { bir: {}, eag: {}, tri: {} }, ace = [], rachas = [], nueves = { ida: [], vta: [] };
   ins.forEach((x) => {
     const n = nom[x.jugador_id]; if (!n) return;
     const j = J[x.jornada_id], ho = HO[j.campo] || [], par = (h) => (ho.find((q) => q.hoyo === h) || {}).par;
@@ -199,6 +199,8 @@ async function calcEstadisticas(T) {
       if (d === -1) cnt.bir[n] = (cnt.bir[n] || 0) + 1;
       if (d <= -2) cnt.eag[n] = (cnt.eag[n] || 0) + 1;
       if (d >= 3) cnt.tri[n] = (cnt.tri[n] || 0) + 1; });
+    // 9 hoyos (scratch): ida = 1–9, vuelta = 10–18; solo si están los 9 hoyos
+    [["ida", 1], ["vta", 10]].forEach(([k, h0]) => { let t = 0; for (let h = h0; h < h0 + 9; h++) { if (!mg[h]) return; t += mg[h]; } nueves[k].push({ n, v: t, j }); });
     const tee = (P[x.partida_id] || {}).salida_tee; let r = 0, ini = null;
     ordenHoyos(tee).forEach((h) => { const g = mg[h]; if (g && g - par(h) <= 0) { if (!r) ini = h; r++; if (r >= 2) rachas.push({ n, v: r, j, a: ini, b: h }); } else r = 0; });
   });
@@ -207,6 +209,7 @@ async function calcEstadisticas(T) {
   const racha = rachas.filter((x) => x.v === maxR).filter((x, i, a) => a.findIndex((y) => y.n === x.n && y.j.id === x.j.id) === i);
   const extremo = (cat, f) => { const v = res.filter((r) => r.categoria === cat && !r.retirado && r.resultado != null); if (!v.length) return []; const m = f(...v.map((r) => r.resultado)); return v.filter((r) => r.resultado === m).map((r) => ({ n: r.nombre, v: m, j: J[r.jornada_id] })); };
   const mejor = (cat) => extremo(cat, Math.min), peor = (cat) => extremo(cat, Math.max);
+  const ext9 = (k, f) => { const v = nueves[k]; if (!v.length) return []; const m = f(...v.map((x) => x.v)); return v.filter((x) => x.v === m); };
   // Lentos: salida → último hoyo anotado, media por jugador, mínimo 3 partidas
   const dur = {};
   parts.forEach((p) => {
@@ -216,7 +219,8 @@ async function calcEstadisticas(T) {
     xs.forEach((x) => { const n = nom[x.jugador_id]; if (n) (dur[n] = dur[n] || []).push(min); });
   });
   const lentos = Object.entries(dur).filter(([, v]) => v.length >= 3).map(([n, v]) => [n, v.reduce((a, b) => a + b, 0) / v.length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  return { bir: top(cnt.bir, 3), tri: top(cnt.tri, 3), eag: top(cnt.eag, 1).filter(([, v]) => v > 0), racha, ace, ms: mejor("scratch"), mh: mejor("handicap"), ps: peor("scratch"), ph: peor("handicap"), lentos };
+  return { bir: top(cnt.bir, 3), tri: top(cnt.tri, 3), eag: top(cnt.eag, 1).filter(([, v]) => v > 0), racha, ace, ms: mejor("scratch"), mh: mejor("handicap"), ps: peor("scratch"), ph: peor("handicap"), lentos,
+    i1: ext9("ida", Math.min), v1: ext9("vta", Math.min), i0: ext9("ida", Math.max), v0: ext9("vta", Math.max) };
 }
 function Estadisticas({ ctx }) {
   const { yo } = ctx;
@@ -228,16 +232,20 @@ function Estadisticas({ ctx }) {
   const Caja = ({ t, filas, rank }) => html`<div class="card stc"><h3>${t}</h3>${filas.length ? filas.map(([n, v, e], i) => html`<div key=${n + i} class=${"kv" + (n === yo.nombre_corto ? " mek" : "")}><span>${rank && html`<b class="pp">${filas.findIndex((f) => f[1] === v) + 1}</b>`}${n}${e ? html`<small class="muted"> · ${e}</small>` : ""}</span><b class="num">${v}</b></div>`) : html`<p class="muted" style=${{ margin: "4px 0" }}>—</p>`}</div>`;
   return html`<div><${Sel}/>
     ${err ? html`<div class="err" style=${{ margin: "12px" }}>${err}</div>` : d === undefined ? html`<${Spinner}/>` : !d ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Todavía no hay jornadas cerradas.</p></div>` : html`<div>
-      <${Caja} t="Más birdies" rank filas=${d.bir}/>
-      <${Caja} t="Más eagles" filas=${d.eag}/>
-      <${Caja} t="Más pares seguidos" filas=${d.racha.map((x) => [x.n, x.v, `${nombreJ(x.j)} · hoyos ${x.a}–${x.b}`])}/>
-      <${Caja} t="Hoyos en uno" filas=${d.ace.map((x) => [x.n, "Hoyo " + x.h, nombreJ(x.j)])}/>
-      <${Caja} t="Más triple bogeys" rank filas=${d.tri}/>
+      <${Caja} t="Los más lentos" rank filas=${d.lentos.map(([n, m]) => [n, hm2(m)])}/>
       <${Caja} t="Mejor vuelta scratch" filas=${d.ms.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Mejor vuelta hándicap" filas=${d.mh.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Peor vuelta scratch" filas=${d.ps.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
       <${Caja} t="Peor vuelta hándicap" filas=${d.ph.map((x) => [x.n, x.v, nombreJ(x.j)])}/>
-      <${Caja} t="Los más lentos" rank filas=${d.lentos.map(([n, m]) => [n, hm2(m)])}/>
+      <${Caja} t="Más eagles" filas=${d.eag}/>
+      <${Caja} t="Más birdies" rank filas=${d.bir}/>
+      <${Caja} t="Más pares (o mejor) seguidos" filas=${d.racha.map((x) => [x.n, x.v, `${nombreJ(x.j)} · hoyos ${x.a}–${x.b}`])}/>
+      <${Caja} t="Más triple bogeys" rank filas=${d.tri}/>
+      <${Caja} t="Hoyos en uno" filas=${d.ace.map((x) => [x.n, "Hoyo " + x.h, nombreJ(x.j)])}/>
+      <${Caja} t="Mejores primeros 9 hoyos scratch" filas=${(d.i1 || []).map((x) => [x.n, x.v, nombreJ(x.j)])}/>
+      <${Caja} t="Mejores segundos 9 hoyos scratch" filas=${(d.v1 || []).map((x) => [x.n, x.v, nombreJ(x.j)])}/>
+      <${Caja} t="Peores primeros 9 hoyos scratch" filas=${(d.i0 || []).map((x) => [x.n, x.v, nombreJ(x.j)])}/>
+      <${Caja} t="Peores segundos 9 hoyos scratch" filas=${(d.v0 || []).map((x) => [x.n, x.v, nombreJ(x.j)])}/>
     </div>`}
   </div>`;
 }

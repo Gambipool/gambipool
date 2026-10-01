@@ -306,8 +306,6 @@ function ComiteTarjetas({ ctx, id }) {
     ${parts.length === 0 && html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Esta jornada no tiene partidas.</p></div>`}
     <div class="list">${parts.map((p) => html`<button class="row" key=${p.id} onClick=${() => go("tarjeta-comite", p.id)}>
       <span class="n"><b>Partida ${p.numero}</b>${p.salida_hora ? ` · ${hmBonito(hm(p.salida_hora))} · Tee ${p.salida_tee}` : ""}<small>${estado(p)}</small></span><span class="x">${p.validada_at ? "Editar" : "Ver"} ›</span></button>`)}</div>
-    <div class="card"><h3>Resultados a mano</h3><p class="muted" style=${{ margin: "0 0 4px" }}>Para majors o jornadas sin tarjeta en la app: el bruto de cada jugador.</p>
-      <button class="btn sec" onClick=${() => go("brutos", id)}>Meter brutos a mano</button></div>
     <div class="card"><h3>Cerrar la jornada</h3>
       ${j.cerrada ? html`<p class="muted" style=${{ margin: 0 }}>Cerrada: los resultados y los puntos están publicados.</p><button class="btn sec" onClick=${reabrir}>Reabrir jornada</button>`
         : html`<p class="muted" style=${{ margin: 0 }}>Calcula los puntos y publica el resultado. ${sinPartida ? `Hay ${sinPartida} inscrito(s) sin partida. ` : ""}</p>
@@ -315,26 +313,3 @@ function ComiteTarjetas({ ctx, id }) {
   </div>`;
 }
 
-function BrutosManual({ ctx, id }) {
-  const [d, setD] = useState(null); const [err, setErr] = useState(""); const [guardado, setGuardado] = useState("");
-  const cargar = useCallback(async () => {
-    const [{ data: ins }, { data: est }] = await Promise.all([sb.rpc("inscritos", { p_jornada: id }), sb.from("inscripciones").select("id, retirado, bruto_manual").eq("jornada_id", id).eq("estado", "inscrito")]);
-    setD((ins || []).map((x) => ({ ...x, ...((est || []).find((e) => e.id === x.inscripcion_id) || {}) })).sort((a, b) => a.nombre_corto.localeCompare(b.nombre_corto)));
-  }, [id]);
-  useEffect(() => { cargar(); }, [cargar]);
-  if (!d) return html`<${Spinner}/>`;
-  const poner = async (x, txt) => {
-    setErr(""); const v = txt.trim() === "" ? null : parseInt(txt, 10);
-    if (v != null && (isNaN(v) || v < 50 || v > 200)) return setErr(`Bruto no válido para ${x.nombre_corto}.`);
-    const { error } = await sb.rpc("poner_bruto", { p_inscripcion: x.inscripcion_id, p_bruto: v }); if (error) return setErr(errTxt(error));
-    setGuardado(x.nombre_corto); cargar();
-  };
-  return html`<div>
-    <p class="muted" style=${{ margin: "12px 14px 0" }}>Se guarda al salir de cada casilla. Si un jugador tiene tarjeta en la app, manda el bruto que pongas aquí.</p>
-    ${err && html`<div class="err" style=${{ margin: "10px 12px" }}>${err}</div>`}${guardado && !err && html`<div class="ok" style=${{ margin: "10px 12px" }}>Guardado: ${guardado}</div>`}
-    <div class="card" style=${{ padding: "2px 12px" }}>${d.map((x) => html`<div class="sc-row" key=${x.inscripcion_id}>
-      <span class="av">${iniciales(x.nombre_corto)}</span><span class="sc-n">${x.nombre_corto}<small>HJ ${x.hcp_juego ?? "—"}${x.retirado ? " · retirado" : ""}</small></span>
-      <input class="inp num" style=${{ width: "64px", margin: 0, textAlign: "center" }} inputmode="numeric" defaultValue=${x.bruto_manual ?? ""} onBlur=${(e) => String(x.bruto_manual ?? "") !== e.target.value.trim() && poner(x, e.target.value)}/>
-      <span class="sc-t num">${x.bruto_manual != null ? x.bruto_manual - (x.hcp_juego || 0) : ""}</span></div>`)}</div>
-  </div>`;
-}

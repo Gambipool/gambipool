@@ -352,7 +352,7 @@ function Ficha({ temporada, id, go, volver }) {
       <div class="kv"><span>Email</span><b>${j.email}</b></div>
       <div class="kv"><span>Móvil</span><b>${j.movil || "—"}</b></div>
       <div class="kv"><span>Licencia</span><b>${j.licencia || "—"}</b></div>
-      <div class="kv"><span>Último hándicap</span><b class="num">${j.ultimo_hcp != null ? String(j.ultimo_hcp).replace(".", ",") : "—"}</b></div>
+      <div class="kv"><span>Último hándicap</span><b class="num">${numES(j.ultimo_hcp)}</b></div>
       <div class="kv"><span>Estado</span><b>${j.estado ? ESTADOS[j.estado] : "Sin alta en la temporada"}</b></div>
       <div class="kv"><span>Inscripción</span><b>${j.pagado ? "Pagada" : "Pendiente"}</b></div>
       <div class="kv"><span>Comité</span><b>${j.es_admin ? "Sí" : "No"}</b></div>
@@ -528,6 +528,21 @@ function App() {
     else if (uid === null) { cacheBorrarTodo(); setYo(undefined); setPila([]); }
   }, [uid]);
 
+  // Volver atrás: botón atrás de Android / gesto del navegador (historial) y, en iPhone con la app
+  // instalada, deslizar desde el borde izquierdo hacia la derecha
+  const pilaRef = React.useRef(pila); pilaRef.current = pila;
+  const recargaRef = React.useRef(null);
+  useEffect(() => {
+    const pop = () => { if (!pilaRef.current.length) return; cacheBorrar("jor_"); setPila((p) => p.slice(0, -1)); recargaRef.current && recargaRef.current(); };
+    window.addEventListener("popstate", pop);
+    let x0 = null, y0 = 0;
+    const ini = (e) => { const t = e.touches[0]; x0 = t.clientX < 24 && pilaRef.current.length ? t.clientX : null; y0 = t.clientY; };
+    const finT = (e) => { if (x0 == null) return; const t = e.changedTouches[0]; if (t.clientX - x0 > 70 && Math.abs(t.clientY - y0) < 60) history.back(); x0 = null; };
+    const ios = window.navigator.standalone === true;   // en el navegador ya existe el gesto propio
+    if (ios) { document.addEventListener("touchstart", ini, { passive: true }); document.addEventListener("touchend", finT, { passive: true }); }
+    return () => { window.removeEventListener("popstate", pop); if (ios) { document.removeEventListener("touchstart", ini); document.removeEventListener("touchend", finT); } };
+  }, []);
+
   // Golpes pendientes: se envían al abrir la app y al volver a ella
   useEffect(() => {
     const f = () => { if (!document.hidden) enviarCola(); };
@@ -544,9 +559,10 @@ function App() {
       <button class="btn sec" onClick=${() => sb.auth.signOut()}>Salir</button></div>`;
   if (!yo.acepta_privacidad) return html`<${Privacidad} yo=${yo} onOk=${cargarYo}/>`;
 
-  const go = (v, p) => { setPila([...pila, { v, p }]); window.scrollTo(0, 0); };
+  recargaRef.current = () => cargarJornadas();
+  const go = (v, p) => { try { history.pushState({ gp: pila.length + 1 }, ""); } catch (e) { /* nada */ } setPila([...pila, { v, p }]); window.scrollTo(0, 0); };
   // Al volver de una pantalla (donde quizá te inscribiste o diste de baja) no se enseña la jornada guardada
-  const atras = () => { cacheBorrar("jor_"); setPila(pila.slice(0, -1)); cargarJornadas(); };
+  const atras = () => { if (history.state && history.state.gp) history.back(); else { cacheBorrar("jor_"); setPila(pila.slice(0, -1)); cargarJornadas(); } };
   const top = pila[pila.length - 1];
   const ctx = { yo, temporada, jornadas, barras, go, atras, tab, setTab, recargar: () => cargarJornadas() };
   const jTit = (id) => { const j = jornadas.find((x) => x.id === id); return j ? `${nombreJ(j)} · ${fechaJ(j)}` : "Jornada"; };
@@ -558,9 +574,9 @@ function App() {
       "comite-calendario": "Calendario", "comite-avisos": "Avisos", "editar-jornada": top.p ? "Editar " + (jornadas.find((x) => x.id === top.p) ? etiquetaJ(jornadas.find((x) => x.id === top.p)) : "jornada") : "Nueva jornada",
       gestion: top.p ? jTit(top.p) : "", jornada: top.p ? jTit(top.p) : "", inscribir: "Inscripción",
       editar: top.p ? "Editar jugador" : "Alta de jugador", ficha: "Ficha", importar: "Importar Excel",
-      "tarjeta-comite": "Tarjeta", "comite-tarjetas": top.p ? jTit(top.p) : "", brutos: "Brutos a mano", "tarjeta-jugador": "Tarjeta",
+      "tarjeta-comite": "Tarjeta", "comite-tarjetas": top.p ? jTit(top.p) : "", "tarjeta-jugador": "Tarjeta",
       "ranking-jugador": typeof top.p === "string" ? top.p.split("|")[2] : "", reglamento: "Reglamento", contabilidad: "Contabilidad", estadisticas: "Estadísticas", palmares: "Palmarés", "comite-temporadas": "Temporadas", "comite-saludos": "Saludos" };
-    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar", "tarjeta-comite", "comite-tarjetas", "brutos", "comite-temporadas", "comite-saludos"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
+    const sub = ["comite", "comite-jugadores", "comite-calendario", "comite-avisos", "editar-jornada", "gestion", "editar", "ficha", "importar", "tarjeta-comite", "comite-tarjetas", "comite-temporadas", "comite-saludos"].includes(top.v) ? "Comité" : top.v === "inscribir" ? jTit(top.p) : "";
     cab = html`<${Cabecera} sub=${sub} titulo=${T[top.v]} onBack=${atras} />`;
     const volverRecargando = () => atras();
     if (top.v === "directorio") cuerpo = html`<${Directorio}/>`;
@@ -585,7 +601,6 @@ function App() {
     else if (top.v === "comite-temporadas") cuerpo = html`<${ComiteTemporadas} ctx=${ctx}/>`;
     else if (top.v === "comite-tarjetas") cuerpo = html`<${ComiteTarjetas} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "tarjeta-comite") cuerpo = html`<${Tarjeta} ctx=${ctx} pid=${top.p} comite=${true}/>`;
-    else if (top.v === "brutos") cuerpo = html`<${BrutosManual} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "editar") cuerpo = html`<${EditarJugador} temporada=${temporada} id=${top.p} yo=${yo} volver=${volverRecargando}/>`;
     else if (top.v === "ficha") cuerpo = html`<${Ficha} key=${top.p + pila.length} temporada=${temporada} id=${top.p} go=${go} volver=${volverRecargando}/>`;
     else if (top.v === "importar") cuerpo = html`<${Importar} temporada=${temporada} yo=${yo} volver=${volverRecargando}/>`;

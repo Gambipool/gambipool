@@ -53,75 +53,116 @@ function hcpJuego(j, hi, barras) {
   if (cr == null || sr == null) { const b = (barras || []).find((x) => x.campo === j.campo && x.nombre === j.barras); if (!b) return null; cr = +b.cr; sr = b.sr; par = b.par; }
   return Math.floor(Math.min(+hi, 54) * sr / 113 + (cr - par) + 0.5);
 }
-const numES = (x) => (x == null ? "—" : String(x).replace(".", ","));
+// Hándicap: siempre con un decimal ("2,0", "11,4")
+const numES = (x) => (x == null || x === "" ? "—" : !isFinite(+x) ? String(x) : (+x < 0 ? "+" : "") + Math.abs(+x).toFixed(1).replace(".", ","));
 const parseHcp = (s) => { const v = String(s).trim().replace(",", "."); if (v === "") return null; const n = v.startsWith("+") ? -parseFloat(v.slice(1)) : parseFloat(v); return isNaN(n) ? NaN : n; };
 
 /* ---------- Horario automático ---------- */
+// Partidas de una franja: el mínimo de partidas posible, con 3 o 4 jugadores (máx. 3 partidas).
+// 6→3+3 · 7→3+4 · 8→4+4 · 9→3+3+3 · 10→3+3+4 · 11→3+4+4 · 12→4+4+4. Las de 3 van primero.
 function repartir(n) {
-  const q = Math.floor(n / 4), r = n % 4;
-  if (r === 0) return Array(q).fill(4);
-  if (r === 3) return [...Array(q).fill(4), 3];
-  if (r === 2) return q >= 1 ? [...Array(q - 1).fill(4), 3, 3] : [2];
-  return q >= 2 ? [...Array(q - 2).fill(4), 3, 3, 3] : q === 1 ? [5] : [1]; // 5, 2 y 1 solo si no hay otra franja: el comité lo ajusta
+  if (n <= 0) return [];
+  if ([1, 2].includes(n)) return [n];
+  if (n === 5) return [5];                      // solo si no hay otra franja: el comité lo ajusta
+  const k = Math.ceil(n / 4), tres = 4 * k - n;
+  return [...Array(tres).fill(3), ...Array(k - tres).fill(4)];
 }
 const barajar = (a) => { const b = [...a]; for (let i = b.length - 1; i > 0; i--) { const k = Math.floor(Math.random() * (i + 1)); [b[i], b[k]] = [b[k], b[i]]; } return b; };
+const franjaDe = (t) => { const m = toMin(t); return toHM(m - (m % 30)); };   // otra hora → su franja de 30 min
+const MAX10 = 9 * 60 + 10;                     // nadie intenta por el tee 10 después de las 9:10
+
+// Horas a intentar coger. ps: [{franja, n (jugadores), numero}] → añade t1 y t10 ("HH:MM").
+// Cada partida intenta tantas horas como jugadores; siempre primero el tee 1.
+//  · Sola en su franja: todas por el tee 1 (8:30, 8:40, 8:50, 9:00).
+//  · Varias: 2 horas seguidas por el tee 1, escalonadas 10 min; por el tee 10 las mismas
+//    (la de 3 solo la primera). El tee 10 se puede pisar y solo hasta las 9:10.
+function calcHoras(ps) {
+  const porF = {};
+  ps.forEach((p) => { if (p.franja) (porF[p.franja] = porF[p.franja] || []).push(p); });
+  Object.entries(porF).forEach(([f, lista]) => {
+    const S = toMin(f);
+    const orden = [...lista].sort((a, b) => (a.n === 3 ? 0 : 1) - (b.n === 3 ? 0 : 1) || a.numero - b.numero);
+    orden.forEach((p, i) => {
+      if (!p.n) { p.t1 = []; p.t10 = []; return; }
+      if (orden.length === 1) { p.t1 = Array.from({ length: p.n }, (_, m) => S + 10 * m); p.t10 = []; }
+      else {
+        p.t1 = [S + 10 * i, S + 10 * (i + 1)];
+        const quiere = Math.max(0, p.n - 2), libres = [S, S + 10].filter((m) => m <= MAX10);
+        let t10 = p.t1.filter((m) => m <= MAX10);
+        // franja de las 9:00: las dos primeras partidas pueden intentar 9:00 y 9:10
+        if (t10.length < quiere && i < 2) libres.forEach((m) => { if (t10.length < quiere && !t10.includes(m)) t10.push(m); });
+        p.t10 = t10.slice(0, quiere).sort((a, b) => a - b);
+      }
+      p.t1 = p.t1.map(toHM); p.t10 = p.t10.map(toHM);
+    });
+  });
+  ps.forEach((p) => { if (!p.franja) { p.t1 = p.t1 || []; p.t10 = p.t10 || []; } });
+  return ps;
+}
 
 function generarHorario(ins, j) {
   // 1) grupos por franja (jornada fuera: un único grupo sin horas)
+  const fuera = j.tipo === "fuera";
   const grupos = {};
-  ins.forEach((x) => { const k = j.tipo === "fuera" ? "—" : hm(x.franja); (grupos[k] = grupos[k] || []).push(x); });
+  ins.forEach((x) => { const k = fuera ? "—" : franjaDe(hm(x.franja) || "08:30"); (grupos[k] = grupos[k] || []).push(x); });
   const claves = Object.keys(grupos).sort((a, b) => (a === "—" ? 0 : toMin(a)) - (b === "—" ? 0 : toMin(b)));
-  // 2) franjas con 1, 2 o 5 jugadores: se pasan jugadores a la franja más cercana (una sola vez cada uno)
-  const movidos = {};
-  if (j.tipo !== "fuera") {
-    for (let vuelta = 0; vuelta < 12; vuelta++) {
+  const movidos = {}, primeros = new Set();       // los que llegan de otra franja van a la primera partida
+  const mover = (g, n, de, a) => {
+    const cand = barajar(grupos[de].filter((x) => !movidos[x.jugador_id]));
+    const sale = (cand.length >= n ? cand : barajar(grupos[de])).slice(0, n);
+    sale.forEach((x) => { movidos[x.jugador_id] = de; primeros.add(x.jugador_id); });
+    grupos[de] = grupos[de].filter((x) => !sale.includes(x)); grupos[a].push(...sale);
+  };
+  if (!fuera && claves.length > 1) {
+    for (let vuelta = 0; vuelta < 40; vuelta++) {
+      claves.slice().forEach((k) => { if (!grupos[k].length) { delete grupos[k]; claves.splice(claves.indexOf(k), 1); } });
+      if (claves.length < 2) break;
+      // 2) más de 12 (3 partidas de 4): los que sobran a la franja siguiente (la última, a la anterior)
+      const llena = claves.find((k) => grupos[k].length > 12);
+      if (llena) { const i = claves.indexOf(llena); mover(null, grupos[llena].length - 12, llena, claves[i + 1] || claves[i - 1]); continue; }
+      // 3) franjas con 1, 2 o 5: se pasan jugadores a la franja más cercana (o se traen de ella)
       const mal = claves.find((k) => [1, 2, 5].includes(grupos[k].length));
-      if (!mal || claves.length < 2) break;
-      const i = claves.indexOf(mal), t = toMin(mal);
+      if (!mal) break;
+      const i = claves.indexOf(mal), t = toMin(mal), len = grupos[mal].length;
       const vecinos = [claves[i - 1], claves[i + 1]].filter(Boolean).sort((a, b) => Math.abs(toMin(a) - t) - Math.abs(toMin(b) - t) || (toMin(b) - toMin(a)));
-      const destino = vecinos.find((k) => ![1, 2, 5].includes(grupos[k].length + (grupos[mal].length === 5 ? 1 : grupos[mal].length))) || vecinos[0];
-      const g = grupos[mal], candidatos = barajar(g.filter((x) => !movidos[x.jugador_id]));
-      const n = g.length === 5 ? 1 : g.length;
-      const sale = (candidatos.length >= n ? candidatos : barajar(g)).slice(0, n);
-      sale.forEach((x) => (movidos[x.jugador_id] = mal));
-      grupos[mal] = g.filter((x) => !sale.includes(x)); grupos[destino].push(...sale);
+      const vale = (c) => c >= 3 && c !== 5 && c <= 12;
+      const n = len === 5 ? 1 : len;
+      const destino = vecinos.find((k) => vale(grupos[k].length + n));
+      if (destino) { mover(null, n, mal, destino); continue; }
+      const falta = len === 5 ? 1 : 3 - len, origen = vecinos.find((k) => vale(grupos[k].length - falta));
+      if (origen) { mover(null, falta, origen, mal); continue; }
+      mover(null, n, mal, vecinos[0]);
     }
     claves.slice().forEach((k) => { if (!grupos[k].length) { delete grupos[k]; claves.splice(claves.indexOf(k), 1); } });
   }
-  // 3) partidas
+  // 4) partidas: las de 3 primero; los que llegan de otra franja, en la primera
   const partidas = [];
   claves.forEach((k) => {
-    const g = barajar(grupos[k]); if (!g.length) return;
-    let p = 0; repartir(g.length).forEach((tam) => { partidas.push({ franja: k === "—" ? null : k, jug: g.slice(p, p + tam), t1: [], t10: [] }); p += tam; });
+    const g = barajar(grupos[k]).sort((a, b) => (primeros.has(b.jugador_id) ? 1 : 0) - (primeros.has(a.jugador_id) ? 1 : 0));
+    let p = 0; repartir(g.length).forEach((tam) => { partidas.push({ franja: k === "—" ? null : k, jug: g.slice(p, p + tam), n: tam }); p += tam; });
   });
   partidas.forEach((p, i) => (p.numero = i + 1));
-  if (j.tipo === "fuera") return { partidas, movidos };
-  // 4) horas por el tee 1
-  let ultimo = null;
-  claves.forEach((k) => {
-    const ps = partidas.filter((p) => p.franja === k); if (!ps.length) return;
-    const S = toMin(k), tarde = S >= 570, sat = ps.length >= 3;
-    const base = ultimo == null ? S : sat ? Math.max(S, ultimo) : Math.max(S, ultimo + 10);
-    ps.forEach((p, i) => {
-      if (sat) p.t1 = [base + 10 * i, base + 10 * (i + 1)];
-      else { const n = tarde && ps.length === 1 ? 3 : 2; p.t1 = Array.from({ length: n }, (_, m) => base + (i * n + m) * 10); }
-      ultimo = Math.max(ultimo ?? 0, ...p.t1);
-    });
-  });
-  // 5) tee 10 (8:00–9:10, nunca dos partidas en la misma hora)
-  const MAX10 = 550, usado = new Set();
-  partidas.forEach((p) => { const c = p.t1.find((m) => m <= MAX10 && !usado.has(m)); if (c != null) { p.t10.push(c); usado.add(c); } });
-  partidas.forEach((p) => { if (p.jug.length >= 4 && p.t10.length === 1) { const c = p.t1[1]; if (c != null && c <= MAX10 && !usado.has(c)) { p.t10.push(c); usado.add(c); } } });
-  if (usado.size) {
-    const lo = Math.min(...usado), hi = Math.min(MAX10, Math.max(...usado) + 20);
-    for (let m = lo; m <= hi; m += 10) {
-      if (usado.has(m)) continue;
-      const cands = partidas.filter((p) => p.jug.length >= 4 && p.t10.length === 1 && p.t1.length).sort((a, b) => Math.abs(a.t1[0] - m) - Math.abs(b.t1[0] - m));
-      if (cands[0]) { cands[0].t10.push(m); cands[0].t10.sort((a, b) => a - b); usado.add(m); }
-    }
-  }
-  partidas.forEach((p) => { p.t1 = p.t1.map(toHM); p.t10 = p.t10.map(toHM); });
+  if (fuera) { partidas.forEach((p) => { p.t1 = []; p.t10 = []; }); return { partidas, movidos }; }
+  calcHoras(partidas);
   return { partidas, movidos };
+}
+
+// Franja de una partida ya creada: la guardada o, si no tiene, la de sus jugadores
+function franjaPartida(p, jug) {
+  if (p.franja) return hm(p.franja);
+  const fs = jug.map((x) => x.franja && franjaDe(hm(x.franja))).filter(Boolean).sort((a, b) => toMin(a) - toMin(b));
+  return fs[0] || null;
+}
+// Horas que deberían tener las partidas según sus jugadores actuales (solo las que no tienen salida apuntada)
+function horasEsperadas(parts, ins, j) {
+  if (j.tipo === "fuera") return [];
+  const ps = parts.map((p) => { const jug = ins.filter((x) => x.partida_id === p.id); return { id: p.id, numero: p.numero, franja: franjaPartida(p, jug), n: jug.length, fija: !!p.salida_hora, t1Act: p.t1 || [], t10Act: p.t10 || [] }; });
+  calcHoras(ps);
+  return ps.filter((p) => !p.fija && (p.t1.join() !== p.t1Act.join() || p.t10.join() !== p.t10Act.join()));
+}
+// Partidas cuyo NÚMERO de horas ya no cuadra con sus jugadores (un retoque a mano de qué horas no cuenta)
+function horasDescuadradas(parts, ins, j) {
+  return horasEsperadas(parts, ins, j).filter((p) => p.t1.length + p.t10.length !== p.t1Act.length + p.t10Act.length);
 }
 
 function avisosHorario(parts, nIns) {
@@ -133,7 +174,6 @@ function avisosHorario(parts, nIns) {
     (p.t10 || []).forEach((h) => { c10[h] = (c10[h] || 0) + 1; if (toMin(h) > 550) out.push(`La partida ${p.numero} tiene ${hmBonito(h)} por el tee 10 (después de las 9:10).`); });
   });
   Object.entries(c1).forEach(([h, n]) => n > 2 && out.push(`${n} partidas intentan ${hmBonito(h)} por el tee 1 (máximo 2).`));
-  Object.entries(c10).forEach(([h, n]) => n > 1 && out.push(`${n} partidas intentan ${hmBonito(h)} por el tee 10 (no pueden pisarse).`));
   return out;
 }
 
@@ -240,7 +280,7 @@ function Inscribir({ ctx, id }) {
     <label class="l">Tu hándicap exacto</label>
     <div style=${{ display: "flex", gap: "10px", alignItems: "center" }}>
       <input class="inp num" style=${{ flex: "0 0 110px" }} inputmode="decimal" value=${hcp} onInput=${(e) => setHcp(e.target.value)} />
-      <a href="https://rfegolf.es/en/aprende-mejora/consulta-handicap" target="_blank" rel="noopener" style=${{ color: "var(--hd)", fontWeight: 700, fontSize: "14px" }}>Consulta tu hándicap</a>
+      <a href="https://rfegolf.es/aprende-mejora/consulta-handicap" target="_blank" rel="noopener" style=${{ color: "var(--hd)", fontWeight: 700, fontSize: "14px" }}>Consulta tu hándicap</a>
     </div>
     <p class="muted">${hj != null ? html`Hándicap de juego en ${j.barras}: <b>${hj}</b>` : "Relleno con el de tu última inscripción. Cámbialo si ha variado."}</p>
     ${!fuera && html`<div>
@@ -290,7 +330,7 @@ function FichaJornada({ ctx, id }) {
     <p class="muted">${j.tipo === "ryder" ? "La Ryder tendrá su propio apartado en La Pool (equipos, partidos y marcador)." : "Fecha reservada por si hay que trasladar una jornada."}</p></div>`;
   const puedeIns = e.k === "abierta";
   const puedeBaja = mia && ["antes", "abierta", "cerrada", "hoy"].includes(e.k);
-  const TABS = [["info", "Info"], ["inscritos", `Inscritos (${ins.length})`], ["horario", "Horario"]];
+  const TABS = [["info", "Info"], ["inscritos", "Inscritos"], ["horario", "Horario"]];
   return html`<div>
     <div class="tabs">${TABS.map(([k, l]) => html`<button key=${k} class=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${l}</button>`)}</div>
     ${msg && html`<div class="ok" style=${{ margin: "12px" }}>${msg}</div>`}
@@ -457,7 +497,7 @@ function EditarJornada({ ctx, id }) {
     await sb.from("avisos").insert({ temporada_id: temporada.id, jornada_id: id, texto: `La ${nombreJ(orig)} se traslada al ${fmtDia(s.fecha).toLowerCase()}.` });
     await recargar(); atras();
   };
-  const plazo = (k, t) => html`<div class="pz" key=${k}><span>${t}</span><input type="datetime-local" class="inp" style=${{ width: "200px", flex: "0 0 200px", margin: 0, padding: "6px 8px", fontSize: "14px" }} value=${toLocalInput(j[k])} onChange=${(e) => set(k, fromLocalInput(e.target.value))}/></div>`;
+  const plazo = (k, t) => html`<div class="pz" key=${k}><span>${t}</span><input type="datetime-local" class="inp" style=${{ width: "200px", flex: "0 0 200px", margin: 0, padding: "6px 8px", fontSize: "16px" }} value=${toLocalInput(j[k])} onChange=${(e) => set(k, fromLocalInput(e.target.value))}/></div>`;
   return html`<div style=${{ padding: "0 16px 24px" }}>
     <label class="l">Número (J…)</label><input class="inp num" inputmode="numeric" value=${j.numero ?? ""} onInput=${(e) => set("numero", e.target.value.replace(/\D/g, ""))} />
     <label class="l">Fecha</label><input class="inp" type="date" value=${j.fecha} onChange=${(e) => set("fecha", e.target.value)} />
@@ -492,6 +532,26 @@ function EditarJornada({ ctx, id }) {
   </div>`;
 }
 
+// Horas que se enseñan como botones: alrededor de la franja (tee 10 solo hasta las 9:10) y las ya marcadas
+function ventanaHoras(fr, marcadas, tee10) {
+  const set = new Set(marcadas || []);
+  if (fr) { const S = toMin(fr); for (let m = S - 10; m <= S + 40; m += 10) if (m >= 7 * 60 && (!tee10 || m <= MAX10)) set.add(toHM(m)); }
+  return [...set].sort((a, b) => toMin(a) - toMin(b));
+}
+const URL_APP = "https://gambipool.github.io/gambipool/";
+function compartirWa(t) { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); }
+function textoWa(tipo, j, parts, ins) {
+  const cab = `Gambipool · ${nombreJ(j)} · ${fechaJ(j)}\n${j.campo}${j.barras ? " · barras " + j.barras : ""}${j.tipo === "major" ? " · Major" : ""}`;
+  if (tipo === "abierta") return `${cab}\n\nAbierta la inscripción hasta el ${fmtPlazo(j.cierre)}.\nApúntate en la app: ${URL_APP}`;
+  if (tipo === "cerrada") return `${cab}\n\nCerrada la inscripción: ${ins.length} inscritos.\nEl horario se publica el ${fmtPlazo(j.horario_at)}.\n${URL_APP}`;
+  const lin = parts.map((p) => {
+    const js = ins.filter((x) => x.partida_id === p.id).map((x) => x.nombre_corto).join(", ");
+    const h = p.salida_hora ? `Salida ${hmBonito(hm(p.salida_hora))} · Tee ${p.salida_tee}` : [p.t1.length && "Tee 1: " + p.t1.map(hmBonito).join(", "), p.t10.length && "Tee 10: " + p.t10.map(hmBonito).join(", ")].filter(Boolean).join(" | ");
+    return `Partida ${p.numero}: ${js || "—"}${h ? "\n   " + h : ""}`;
+  }).join("\n");
+  return `${cab}\n\nHorario:\n${lin}${j.tipo !== "fuera" && j.reserva ? `\n\nReserva en la web del club el ${fmtPlazo(j.reserva)}.` : ""}\n${URL_APP}`;
+}
+
 function GestionJornada({ ctx, id }) {
   const { yo, temporada, barras } = ctx;
   const [tab, setTab] = useState("horario");
@@ -499,6 +559,7 @@ function GestionJornada({ ctx, id }) {
   const [todos, setTodos] = useState([]);
   const [err, setErr] = useState(""); const [trabajando, setTrabajando] = useState(false);
   const [alta, setAlta] = useState({ jugador: "", franja: "08:30", hcp: "" });
+  const [avisoWa, setAvisoWa] = useState(false);
   const cargar = useCallback(() => cargarJornada(id, yo).then(setD), [id]);
   useEffect(() => { cargar(); sb.from("jugadores").select("id, nombre_corto, ultimo_hcp, jugador_temporada(temporada_id, estado)").order("nombre_corto").then(({ data }) => setTodos((data || []).filter((x) => (x.jugador_temporada || []).some((t) => t.temporada_id === temporada.id && t.estado === "activo")))); }, [cargar]);
   if (!d) return html`<${Spinner}/>`;
@@ -522,12 +583,31 @@ function GestionJornada({ ctx, id }) {
     }
     const nm = Object.keys(movidos).length; if (nm) setErr(`${nm} jugador(es) movidos a una franja cercana para no dejar franjas de 1, 2 o 5. Revisa el horario.`);
   });
-  const mover = (x, pid) => run(async () => chk(await sb.from("inscripciones").update({ partida_id: pid ? +pid : null }).eq("id", x.inscripcion_id)));
-  const horas = (p, campo, txt) => run(async () => {
-    const v = txt.split(/[\s,;·]+/).filter(Boolean).map((h) => { const m = h.replace(".", ":").match(/^(\d{1,2}):?(\d{2})$/); if (!m) throw new Error(`Hora no válida: ${h}`); return toHM(+m[1] * 60 + +m[2]); });
+  // Horas que no cuadran con los jugadores actuales (partidas sin salida apuntada)
+  const pend = horasDescuadradas(parts, ins, j);
+  const guardarHoras = async (lista) => { for (const p of lista) chk(await sb.from("partidas").update({ t1: p.t1, t10: p.t10 }).eq("id", p.id)); };
+  // Tras cambiar quién juega en cada partida: sin publicar se recalcula solo; publicado, se avisa al comité
+  const tras = async () => {
+    const nd = await cargarJornada(id, yo);
+    if (!nd.j.horario_publicado) await guardarHoras(horasEsperadas(nd.parts, nd.ins, nd.j));
+  };
+  const mover = (x, pid) => run(async () => {
+    // una partida nueva (sin franja) toma la franja de la partida de la que viene el jugador
+    const dest = parts.find((p) => p.id === +pid), orig = parts.find((p) => p.id === x.partida_id);
+    if (dest && !dest.franja) { const fr = (orig && orig.franja) || (x.franja && franjaDe(hm(x.franja))); if (fr) chk(await sb.from("partidas").update({ franja: fr }).eq("id", dest.id)); }
+    chk(await sb.from("inscripciones").update({ partida_id: pid ? +pid : null }).eq("id", x.inscripcion_id)); await tras();
+  });
+  const recalcular = () => run(async () => {
+    const todas = horasEsperadas(parts.map((p) => ({ ...p, t1: ["x"] })), ins, j);   // fuerza todas las que no tienen salida
+    if (!todas.length) return;
+    if (j.horario_publicado && !confirm("El horario ya está publicado. ¿Recalcular las horas? Después avisa al grupo con el horario corregido.")) return;
+    await guardarHoras(todas); if (j.horario_publicado) setAvisoWa(true);
+  });
+  const marcar = (p, campo, h) => run(async () => {
+    const act = p[campo] || [], v = act.includes(h) ? act.filter((x) => x !== h) : [...act, h].sort((a, b) => toMin(a) - toMin(b));
     chk(await sb.from("partidas").update({ [campo]: v }).eq("id", p.id));
   });
-  const nueva = () => run(async () => chk(await sb.from("partidas").insert({ jornada_id: j.id, numero: (parts.at(-1)?.numero || 0) + 1, franja: parts.at(-1)?.franja || null })));
+  const nueva = () => run(async () => chk(await sb.from("partidas").insert({ jornada_id: j.id, numero: (parts.at(-1)?.numero || 0) + 1, franja: null })));
   const borrar = (p) => run(async () => {
     if (p.marcador_id || p.validada_at || p.salida_hora) throw new Error(`La partida ${p.numero} ya tiene salida apuntada o tarjeta empezada: no se puede borrar.`);
     chk(await sb.from("partidas").delete().eq("id", p.id));
@@ -536,7 +616,7 @@ function GestionJornada({ ctx, id }) {
     chk(await sb.from("jornadas").update({ horario_publicado: v }).eq("id", j.id));
     if (v) chk(await sb.from("avisos").insert({ temporada_id: temporada.id, jornada_id: j.id, tipo: "horario", texto: `Publicado el horario de reservas de la ${nombreJ(j)}.` }));
   });
-  const quitar = (x) => run(async () => { if (!confirm(`¿Quitar a ${x.nombre_corto} de la jornada? (sin amarilla)`)) return; chk(await sb.from("inscripciones").update({ estado: "baja", partida_id: null, baja_at: new Date().toISOString() }).eq("id", x.inscripcion_id)); });
+  const quitar = (x) => run(async () => { if (!confirm(`¿Quitar a ${x.nombre_corto} de la jornada? (sin amarilla)`)) return; chk(await sb.from("inscripciones").update({ estado: "baja", partida_id: null, baja_at: new Date().toISOString() }).eq("id", x.inscripcion_id)); await tras(); });
   const inscribir = () => run(async () => {
     const hi = parseHcp(alta.hcp); if (!alta.jugador) throw new Error("Elige un jugador."); if (hi == null || isNaN(hi)) throw new Error("Pon su hándicap exacto.");
     chk(await sb.rpc("inscribir_jugador", { p_jugador: alta.jugador, p_jornada: j.id, p_franja: j.tipo === "fuera" ? null : alta.franja, p_otra: !FRANJAS.includes(alta.franja), p_hcp: hi }));
@@ -545,7 +625,11 @@ function GestionJornada({ ctx, id }) {
   const libres = todos.filter((t) => !ins.some((x) => x.jugador_id === t.id));
 
   return html`<div>
-    <div class="tabs">${[["horario", "Horario"], ["inscritos", `Inscritos (${ins.length})`]].map(([k, l]) => html`<button key=${k} class=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${l}</button>`)}</div>
+    <div class="card wa"><b>Avisar al grupo por WhatsApp</b>
+      <div class="btns"><button class="btn sec small" onClick=${() => compartirWa(textoWa("abierta", j, parts, ins))}>Inscripción abierta</button>
+        <button class="btn sec small" onClick=${() => compartirWa(textoWa("cerrada", j, parts, ins))}>Inscripción cerrada</button>
+        <button class="btn sec small" disabled=${!parts.length} onClick=${() => compartirWa(textoWa("horario", j, parts, ins))}>Horario</button></div></div>
+    <div class="tabs">${[["horario", "Horario"], ["inscritos", "Inscritos"]].map(([k, l]) => html`<button key=${k} class=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${l}</button>`)}</div>
     ${err && html`<div class="err" style=${{ margin: "12px" }}>${err}</div>`}
     ${tab === "horario" && html`<div>
       <div class="btns" style=${{ margin: "12px" }}>
@@ -555,19 +639,25 @@ function GestionJornada({ ctx, id }) {
         : html`<button class="btn" disabled=${!parts.length} onClick=${() => publicar(true)}>Publicar horario</button>`}
         <p class="muted">${j.horario_publicado ? "Publicado: lo ven todos." : `Borrador. Hora prevista de publicación: ${fmtPlazo(j.horario_at)}.`}</p></div>
       ${avisos.length > 0 && html`<div class="err" style=${{ margin: "0 12px" }}>${avisos.map((a) => html`<div key=${a}>${a}</div>`)}</div>`}
+      ${pend.length > 0 && html`<div class="card warnc"><b>Las horas no cuadran con los jugadores</b>
+        <p class="muted" style=${{ margin: "4px 0 0" }}>${pend.map((p) => "Partida " + p.numero).join(", ")}${j.horario_publicado ? ". El horario ya está publicado: si recalculas, avisa al grupo." : "."}</p>
+        <button class="btn small" disabled=${trabajando} onClick=${recalcular}>Recalcular horas</button></div>`}
+      ${avisoWa && html`<div class="card"><b>Horas recalculadas</b><p class="muted" style=${{ margin: "4px 0 0" }}>Manda el horario corregido al grupo.</p>
+        <button class="btn small" onClick=${() => { compartirWa(textoWa("horario", j, parts, ins)); setAvisoWa(false); }}>Compartir por WhatsApp</button></div>`}
       ${sinPartida.length > 0 && html`<div class="ed"><div class="t"><b>Sin partida</b><span>${sinPartida.length}</span></div>
         ${sinPartida.map((x) => html`<div class="chip" key=${x.jugador_id}>${x.nombre_corto} <span class="muted">${x.franja ? hmBonito(hm(x.franja)) : ""}</span>
           <select class="mv" value="" onChange=${(e) => mover(x, e.target.value)}><option value="">Mover a…</option>${parts.map((p) => html`<option key=${p.id} value=${p.id}>Partida ${p.numero}</option>`)}</select></div>`)}</div>`}
-      ${parts.map((p) => { const js = ins.filter((x) => x.partida_id === p.id); return html`<div class="ed" key=${p.id}>
-        <div class="t"><b>Partida ${p.numero}${p.franja ? " · " + hmBonito(hm(p.franja)) : ""}</b><span class="num">${js.length} jug.${p.salida_hora ? " · Salida " + hmBonito(hm(p.salida_hora)) + " T" + p.salida_tee : ""}</span></div>
+      ${parts.map((p) => { const js = ins.filter((x) => x.partida_id === p.id); const fr = franjaPartida(p, js); return html`<div class="ed" key=${p.id}>
+        <div class="t"><b>Partida ${p.numero}</b><span class="num">${js.length} jug.${p.salida_hora ? " · Salida " + hmBonito(hm(p.salida_hora)) + " T" + p.salida_tee : ""}</span></div>
         ${js.map((x) => html`<div class="chip" key=${x.jugador_id}>${x.nombre_corto} <span class="muted">${x.franja ? (x.otra_hora ? "otra " : "") + hmBonito(hm(x.franja)) : ""}</span>
           <select class="mv" value=${p.id} onChange=${(e) => mover(x, e.target.value)}>${parts.map((q) => html`<option key=${q.id} value=${q.id}>Partida ${q.numero}</option>`)}<option value="">Sin partida</option></select></div>`)}
-        ${j.tipo !== "fuera" && html`<div class="edt">
-          <label>Tee 1 <input class="inp num" style=${{ margin: "2px 0 6px", padding: "6px 8px", fontSize: "14px" }} defaultValue=${p.t1.join(", ")} onBlur=${(e) => e.target.value !== p.t1.join(", ") && horas(p, "t1", e.target.value)}/></label>
-          <label>Tee 10 <input class="inp num" style=${{ margin: "2px 0 6px", padding: "6px 8px", fontSize: "14px" }} defaultValue=${p.t10.join(", ")} onBlur=${(e) => e.target.value !== p.t10.join(", ") && horas(p, "t10", e.target.value)}/></label></div>`}
+        ${j.tipo !== "fuera" && (fr || p.t1.length || p.t10.length) && html`<div class="edt">
+          <div class="hl">Tee 1</div><div class="hrs">${ventanaHoras(fr, p.t1, false).map((h) => html`<button key=${h} class=${p.t1.includes(h) ? "on" : ""} disabled=${trabajando} onClick=${() => marcar(p, "t1", h)}>${hmBonito(h)}</button>`)}</div>
+          <div class="hl">Tee 10</div><div class="hrs">${ventanaHoras(fr, p.t10, true).map((h) => html`<button key=${h} class=${p.t10.includes(h) ? "on" : ""} disabled=${trabajando} onClick=${() => marcar(p, "t10", h)}>${hmBonito(h)}</button>`)}</div></div>`}
         ${js.length === 0 && html`<div class="edt"><button class="link" onClick=${() => borrar(p)}>Eliminar partida vacía</button></div>`}
       </div>`; })}
-      <p class="muted" style=${{ margin: "12px" }}>Horas separadas por comas (08:30, 08:40). Se guardan al salir de la casilla.</p>
+      ${parts.length > 0 && j.tipo !== "fuera" && html`<div style=${{ margin: "12px" }}><button class="btn sec small" disabled=${trabajando} onClick=${recalcular}>Recalcular horas según las reglas</button>
+        <p class="muted">Pulsa una hora para marcarla o quitarla. Las partidas con salida apuntada no se recalculan.</p></div>`}
     </div>`}
     ${tab === "inscritos" && html`<div>
       <div class="card"><h3>Inscribir a un jugador</h3><p class="muted">Para altas fuera de plazo. No tiene límite de fechas.</p>
