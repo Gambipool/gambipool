@@ -244,3 +244,4 @@ select.inp{appearance:auto}
 .hrs button.on{background:var(--hd);border-color:var(--hd);color:#fff;font-weight:700}
 .card.warnc{border-left:4px solid var(--warn)}
 .card.wa .btns{margin-top:8px}
+.hrs select.otra{border:1px dashed var(--line);background:#fff;border-radius:16px;padding:5px 8px;font-size:16px;color:var(--muted);max-width:96px}

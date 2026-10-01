@@ -86,7 +86,8 @@ function calcHoras(ps) {
       if (!p.n) { p.t1 = []; p.t10 = []; return; }
       if (orden.length === 1) { p.t1 = Array.from({ length: p.n }, (_, m) => S + 10 * m); p.t10 = []; }
       else {
-        p.t1 = [S + 10 * i, S + 10 * (i + 1)];
+        // desde las 9:30 (sin tee 10), dos partidas no se pisan: 9:30–9:40 y 9:50–10:00
+        p.t1 = S > MAX10 && orden.length === 2 ? [S + 20 * i, S + 20 * i + 10] : [S + 10 * i, S + 10 * (i + 1)];
         const quiere = Math.max(0, p.n - 2), libres = [S, S + 10].filter((m) => m <= MAX10);
         let t10 = p.t1.filter((m) => m <= MAX10);
         // franja de las 9:00: las dos primeras partidas pueden intentar 9:00 y 9:10
@@ -147,11 +148,15 @@ function generarHorario(ins, j) {
   return { partidas, movidos };
 }
 
-// Franja de una partida ya creada: la guardada o, si no tiene, la de sus jugadores
+// Franja de una partida: la guardada al generar el horario. Si todos sus jugadores son de otra
+// misma franja (p. ej. una partida nueva o rehecha a mano), esa. Sin franja guardada: la más
+// repetida entre sus jugadores (empate: la más tardía).
 function franjaPartida(p, jug) {
-  if (p.franja) return hm(p.franja);
-  const fs = jug.map((x) => x.franja && franjaDe(hm(x.franja))).filter(Boolean).sort((a, b) => toMin(a) - toMin(b));
-  return fs[0] || null;
+  const c = {}; jug.forEach((x) => { if (x.franja) { const f = franjaDe(hm(x.franja)); c[f] = (c[f] || 0) + 1; } });
+  const fs = Object.keys(c).sort((a, b) => c[b] - c[a] || toMin(b) - toMin(a));
+  const guardada = p.franja ? franjaDe(hm(p.franja)) : null;
+  if (guardada && !(fs.length === 1 && fs[0] !== guardada)) return guardada;
+  return fs[0] || guardada;
 }
 // Horas que deberían tener las partidas según sus jugadores actuales (solo las que no tienen salida apuntada)
 function horasEsperadas(parts, ins, j) {
@@ -535,7 +540,7 @@ function EditarJornada({ ctx, id }) {
 // Horas que se enseñan como botones: alrededor de la franja (tee 10 solo hasta las 9:10) y las ya marcadas
 function ventanaHoras(fr, marcadas, tee10) {
   const set = new Set(marcadas || []);
-  if (fr) { const S = toMin(fr); for (let m = S - 10; m <= S + 40; m += 10) if (m >= 7 * 60 && (!tee10 || m <= MAX10)) set.add(toHM(m)); }
+  if (fr) { const S = toMin(fr); for (let m = S; m <= S + 30; m += 10) if (!tee10 || m <= MAX10) set.add(toHM(m)); }
   return [...set].sort((a, b) => toMin(a) - toMin(b));
 }
 const URL_APP = "https://gambipool.github.io/gambipool/";
@@ -592,9 +597,6 @@ function GestionJornada({ ctx, id }) {
     if (!nd.j.horario_publicado) await guardarHoras(horasEsperadas(nd.parts, nd.ins, nd.j));
   };
   const mover = (x, pid) => run(async () => {
-    // una partida nueva (sin franja) toma la franja de la partida de la que viene el jugador
-    const dest = parts.find((p) => p.id === +pid), orig = parts.find((p) => p.id === x.partida_id);
-    if (dest && !dest.franja) { const fr = (orig && orig.franja) || (x.franja && franjaDe(hm(x.franja))); if (fr) chk(await sb.from("partidas").update({ franja: fr }).eq("id", dest.id)); }
     chk(await sb.from("inscripciones").update({ partida_id: pid ? +pid : null }).eq("id", x.inscripcion_id)); await tras();
   });
   const recalcular = () => run(async () => {
@@ -652,8 +654,10 @@ function GestionJornada({ ctx, id }) {
         ${js.map((x) => html`<div class="chip" key=${x.jugador_id}>${x.nombre_corto} <span class="muted">${x.franja ? (x.otra_hora ? "otra " : "") + hmBonito(hm(x.franja)) : ""}</span>
           <select class="mv" value=${p.id} onChange=${(e) => mover(x, e.target.value)}>${parts.map((q) => html`<option key=${q.id} value=${q.id}>Partida ${q.numero}</option>`)}<option value="">Sin partida</option></select></div>`)}
         ${j.tipo !== "fuera" && (fr || p.t1.length || p.t10.length) && html`<div class="edt">
-          <div class="hl">Tee 1</div><div class="hrs">${ventanaHoras(fr, p.t1, false).map((h) => html`<button key=${h} class=${p.t1.includes(h) ? "on" : ""} disabled=${trabajando} onClick=${() => marcar(p, "t1", h)}>${hmBonito(h)}</button>`)}</div>
-          <div class="hl">Tee 10</div><div class="hrs">${ventanaHoras(fr, p.t10, true).map((h) => html`<button key=${h} class=${p.t10.includes(h) ? "on" : ""} disabled=${trabajando} onClick=${() => marcar(p, "t10", h)}>${hmBonito(h)}</button>`)}</div></div>`}
+          ${[["t1", "Tee 1", false], ["t10", "Tee 10", true]].map(([c, l, d10]) => { const vs = ventanaHoras(fr, p[c], d10); return html`<${React.Fragment} key=${c}>
+            <div class="hl">${l}</div><div class="hrs">${vs.map((h) => html`<button key=${h} class=${p[c].includes(h) ? "on" : ""} disabled=${trabajando} onClick=${() => marcar(p, c, h)}>${hmBonito(h)}</button>`)}
+              ${!vs.length && html`<span class="muted" style=${{ fontSize: "13px" }}>Sin horas (tee 10 solo hasta las 9:10)</span>`}
+              <select class="otra" value="" disabled=${trabajando} onChange=${(e) => e.target.value && marcar(p, c, e.target.value)}><option value="">+ otra</option>${HORAS10.filter((h) => !vs.includes(h) && (!d10 || toMin(h) <= MAX10)).map((h) => html`<option key=${h} value=${h}>${hmBonito(h)}</option>`)}</select></div></${React.Fragment}>`; })}</div>`}
         ${js.length === 0 && html`<div class="edt"><button class="link" onClick=${() => borrar(p)}>Eliminar partida vacía</button></div>`}
       </div>`; })}
       ${parts.length > 0 && j.tipo !== "fuera" && html`<div style=${{ margin: "12px" }}><button class="btn sec small" disabled=${trabajando} onClick=${recalcular}>Recalcular horas según las reglas</button>
