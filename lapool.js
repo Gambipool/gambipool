@@ -88,11 +88,8 @@ function Contabilidad({ ctx }) {
   const [d, setD] = useState(null);
   const [nuevo, setNuevo] = useState({ tipo: "gasto", concepto: "", importe: "" });
   const [edit, setEdit] = useState(null); const [err, setErr] = useState("");
-  const tAct = React.useRef(T.id); tAct.current = T.id;
   const cargar = useCallback(async () => {
-    const id = T.id;
-    const [{ data: n }, { data: mv }] = await Promise.all([sb.rpc("cuotas_cobradas", { p_temporada: id }), sb.from("movimientos").select("*").eq("temporada_id", id).order("creado")]);
-    if (tAct.current !== id) return;   // se cambió de temporada mientras cargaba
+    const [{ data: n }, { data: mv }] = await Promise.all([sb.rpc("cuotas_cobradas", { p_temporada: T.id }), sb.from("movimientos").select("*").eq("temporada_id", T.id).order("creado")]);
     setD({ n: n || 0, mv: mv || [] });
   }, [T.id]);
   useEffect(() => { setD(null); cargar(); }, [cargar]);
@@ -230,11 +227,7 @@ function Estadisticas({ ctx }) {
   const { T, Sel } = useTemporadas(ctx);
   const [err, setErr] = useState("");
   const [d, setD] = useState(() => cacheLeer(`est_${T.id}`));
-  useEffect(() => {
-    let vivo = true; setErr(""); setD(cacheLeer(`est_${T.id}`));
-    calcEstadisticas(T).then((v) => { cacheGuardar(`est_${T.id}`, v); if (vivo) { setD(v); setErr(""); } }).catch((e) => { if (vivo && cacheLeer(`est_${T.id}`) === undefined) setErr(errTxt(e)); });
-    return () => { vivo = false; };
-  }, [T.id]);
+  useEffect(() => { setD(cacheLeer(`est_${T.id}`)); calcEstadisticas(T).then((v) => { cacheGuardar(`est_${T.id}`, v); setD(v); setErr(""); }).catch((e) => { if (cacheLeer(`est_${T.id}`) === undefined) setErr(errTxt(e)); }); }, [T.id]);
   const hm2 = (m) => `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")}`;
   const Caja = ({ t, filas, rank }) => html`<div class="card stc"><h3>${t}</h3>${filas.length ? filas.map(([n, v, e], i) => html`<div key=${n + i} class=${"kv" + (n === yo.nombre_corto ? " mek" : "")}><span>${rank && html`<b class="pp">${filas.findIndex((f) => f[1] === v) + 1}</b>`}${n}${e ? html`<small class="muted"> · ${e}</small>` : ""}</span><b class="num">${v}</b></div>`) : html`<p class="muted" style=${{ margin: "4px 0" }}>—</p>`}</div>`;
   return html`<div><${Sel}/>

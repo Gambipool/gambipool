@@ -49,7 +49,6 @@ async function cargarRanking(temporada, jornadas, conMiembros) {
 }
 const claveRanking = (temporada, jornadas, conMiembros) => `rk_${temporada.id}_${conMiembros ? 1 : 0}_${jornadas.filter((j) => j.cerrada).length}`;
 
-const SIN_JORNADAS = [];
 /* ---------- Pestaña Clasificación ---------- */
 function Clasificacion({ ctx }) {
   const { temporada } = ctx;
@@ -57,17 +56,10 @@ function Clasificacion({ ctx }) {
   const [cat, setCat] = useState(recordar("cat") || "scratch");
   const [temps, setTemps] = useState([temporada]);
   const [tid, setTid] = useState(temporada.id);
-  const [jsT, setJsT] = useState({ tid: temporada.id, js: ctx.jornadas });   // jornadas y de qué temporada son
+  const [js, setJs] = useState(ctx.jornadas);
   const [jid, setJid] = useState(null);
   useEffect(() => { sb.from("temporadas").select("*").order("anio", { ascending: false }).then(({ data }) => data && data.length && setTemps(data)); }, []);
-  useEffect(() => {
-    let vivo = true;
-    if (tid === temporada.id) setJsT({ tid, js: ctx.jornadas });
-    else sb.from("jornadas").select("*").eq("temporada_id", tid).order("fecha").then(({ data, error }) => { if (vivo && !error) setJsT({ tid, js: data || [] }); });
-    return () => { vivo = false; };   // si se cambia de temporada antes de que llegue, se descarta
-  }, [tid, ctx.jornadas]);
-  const listo = jsT.tid === tid;
-  const js = listo ? jsT.js : SIN_JORNADAS;
+  useEffect(() => { if (tid === temporada.id) setJs(ctx.jornadas); else sb.from("jornadas").select("*").eq("temporada_id", tid).order("fecha").then(({ data }) => setJs(data || [])); }, [tid, ctx.jornadas]);
   const T = temps.find((t) => t.id === tid) || temporada;
   const conPuntos = js.filter((j) => inscribible(j) && j.numero);
   const hoy = hoyMadrid();
@@ -86,7 +78,7 @@ function Clasificacion({ ctx }) {
       ${sub === "jornada" && html`<select class="inp" value=${jid || ""} onChange=${(e) => setJid(+e.target.value)}>${[...conPuntos].reverse().map((x) => html`<option key=${x.id} value=${x.id}>${nombreJ(x)} · ${fmtDia(x.fecha)}${x.tipo === "major" ? " · Major" : ""}</option>`)}</select>`}
     </div>
     <${SegCat} cat=${cat} setCat=${setCat}/>
-    ${!listo ? html`<${Spinner}/>` : sub === "jornada" ? (j ? html`<${ClasJornada} key=${j.id + cat} ctx=${ctx} j=${j} cat=${cat}/>` : html`<div class="card"><p class="muted" style=${{ margin: 0 }}>No hay jornadas.</p></div>`)
+    ${sub === "jornada" ? (j ? html`<${ClasJornada} key=${j.id + cat} ctx=${ctx} j=${j} cat=${cat}/>` : html`<div class="card"><p class="muted" style=${{ margin: 0 }}>No hay jornadas.</p></div>`)
       : html`<${Ranking} key=${tid + cat} ctx=${ctx} temporada=${T} jornadas=${conPuntos} cat=${cat}/>`}
   </div>`;
 }
@@ -147,7 +139,6 @@ function Directo({ ctx, j, cat }) {
   const mia = (ls.find((x) => x.jugador_id === yo.id) || {}).partida_id;
   const me = (x) => x.jugador_id === yo.id || (mia != null && x.partida_id === mia);
   return html`<div class="clw">
-    ${!j.cerrada && j.fecha <= hoyMadrid() && fin(j) >= hoyMadrid() && ls.some((x) => x.jugador_id === yo.id && x.partida_id) && html`<div style=${{ margin: "10px 12px 0" }}><button class="btn sec" onClick=${() => { ctx.setTab("tarjeta"); window.scrollTo(0, 0); }}>Volver a mi tarjeta</button></div>`}
     <div class="live"><span class="dotl"></span>En directo</div>
     <div class="cl h"><span>#</span><span>Jugador</span><span>Hoyos</span><span>${cat === "scratch" ? "Bruto" : "Neto"}</span></div>
     ${jugando.map((x, i) => html`<button key=${x.inscripcion_id} class=${"cl" + (me(x) ? " me" : "")} onClick=${() => go("tarjeta-jugador", `${j.id}|${x.jugador_id}|${cat}`)}>

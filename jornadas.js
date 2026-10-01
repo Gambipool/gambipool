@@ -496,7 +496,6 @@ function EditarJornada({ ctx, id }) {
   const sust = jornadas.filter((x) => x.tipo === "sustitucion" && x.fecha >= hoyMadrid());
   const eliminar = async () => {
     setErr("");
-    if (orig.cerrada) return setErr(`La ${nombreJ(orig)} está cerrada y tiene puntos en el ranking. Para eliminarla, reábrela antes desde Tarjetas.`);
     const { count } = await sb.from("inscripciones").select("id", { count: "exact", head: true }).eq("jornada_id", id).eq("estado", "inscrito");
     const txt = orig.cerrada ? `La ${nombreJ(orig)} tiene resultados y puntos. Si la eliminas, se borran y el ranking cambia. ¿Eliminarla?`
       : count ? `La ${nombreJ(orig)} tiene ${count} inscrito(s). Se borrarán sus inscripciones, partidas y tarjetas. ¿Eliminarla?` : `¿Eliminar ${inscribible(orig) ? "la " + nombreJ(orig) : "esta fecha"} del calendario?`;
@@ -564,7 +563,7 @@ function compartirWa(t) {
   const vis = () => { if (document.hidden) salio = true; };
   document.addEventListener("visibilitychange", vis);
   window.location.href = "whatsapp://send?text=" + txt;
-  setTimeout(() => { document.removeEventListener("visibilitychange", vis); if (!salio && !document.hidden) window.location.href = "https://wa.me/?text=" + txt; }, 2500);   // iPhone bloquea window.open tras una espera
+  setTimeout(() => { document.removeEventListener("visibilitychange", vis); if (!salio && !document.hidden) window.open("https://wa.me/?text=" + txt, "_blank"); }, 2500);
 }
 function textoWa(tipo, j, parts, ins) {
   const cab = `Gambipool · ${nombreJ(j)} · ${fechaJ(j)}\n${j.campo}${j.barras ? " · barras " + j.barras : ""}${j.tipo === "major" ? " · Major" : ""}`;
@@ -609,13 +608,12 @@ function GestionJornada({ ctx, id }) {
   const pend = horasDescuadradas(parts, ins, j);
   const guardarHoras = async (lista) => { for (const p of lista) chk(await sb.from("partidas").update({ t1: p.t1, t10: p.t10 }).eq("id", p.id)); };
   // Tras cambiar quién juega en cada partida: sin publicar se recalcula solo; publicado, se avisa al comité
-  // Solo se tocan las partidas afectadas: los retoques a mano en las demás se respetan
-  const tras = async (ids) => {
+  const tras = async () => {
     const nd = await cargarJornada(id, yo);
-    if (!nd.j.horario_publicado) await guardarHoras(horasEsperadas(nd.parts, nd.ins, nd.j).filter((p) => ids.includes(p.id)));
+    if (!nd.j.horario_publicado) await guardarHoras(horasEsperadas(nd.parts, nd.ins, nd.j));
   };
   const mover = (x, pid) => run(async () => {
-    chk(await sb.from("inscripciones").update({ partida_id: pid ? +pid : null }).eq("id", x.inscripcion_id)); await tras([x.partida_id, pid ? +pid : null]);
+    chk(await sb.from("inscripciones").update({ partida_id: pid ? +pid : null }).eq("id", x.inscripcion_id)); await tras();
   });
   const recalcular = () => run(async () => {
     const todas = horasEsperadas(parts.map((p) => ({ ...p, t1: ["x"] })), ins, j);   // fuerza todas las que no tienen salida
@@ -636,7 +634,7 @@ function GestionJornada({ ctx, id }) {
     chk(await sb.from("jornadas").update({ horario_publicado: v }).eq("id", j.id));
     if (v) chk(await sb.from("avisos").insert({ temporada_id: temporada.id, jornada_id: j.id, tipo: "horario", texto: `Publicado el horario de reservas de la ${nombreJ(j)}.` }));
   });
-  const quitar = (x) => run(async () => { if (!confirm(`¿Quitar a ${x.nombre_corto} de la jornada? (sin amarilla)`)) return; chk(await sb.from("inscripciones").update({ estado: "baja", partida_id: null, baja_at: new Date().toISOString() }).eq("id", x.inscripcion_id)); await tras([x.partida_id]); });
+  const quitar = (x) => run(async () => { if (!confirm(`¿Quitar a ${x.nombre_corto} de la jornada? (sin amarilla)`)) return; chk(await sb.from("inscripciones").update({ estado: "baja", partida_id: null, baja_at: new Date().toISOString() }).eq("id", x.inscripcion_id)); await tras(); });
   const inscribir = () => run(async () => {
     const hi = parseHcp(alta.hcp); if (!alta.jugador) throw new Error("Elige un jugador."); if (hi == null || isNaN(hi)) throw new Error("Pon su hándicap exacto.");
     chk(await sb.rpc("inscribir_jugador", { p_jugador: alta.jugador, p_jornada: j.id, p_franja: j.tipo === "fuera" ? null : alta.franja, p_otra: !FRANJAS.includes(alta.franja), p_hcp: hi }));
