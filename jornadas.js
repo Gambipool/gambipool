@@ -22,7 +22,7 @@ const hm = (t) => (t ? String(t).slice(0, 5) : "");
 const hmBonito = (t) => (t ? String(+t.slice(0, 2)) + ":" + t.slice(3, 5) : "");
 const toMin = (t) => { const [h, m] = String(t).slice(0, 5).split(":").map(Number); return h * 60 + m; };
 const toHM = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-const HORAS10 = (() => { const a = []; for (let m = 7 * 60; m <= 15 * 60; m += 10) a.push(toHM(m)); return a; })();
+const HORAS10 = (() => { const a = []; for (let m = 8 * 60; m <= 17 * 60; m += 10) a.push(toHM(m)); return a; })();
 const FRANJAS = ["08:00", "08:30", "09:00", "09:30", "10:00"];
 
 /* ---------- Jornadas ---------- */
@@ -72,32 +72,42 @@ const franjaDe = (t) => { const m = toMin(t); return toHM(m - (m % 30)); };   //
 const MAX10 = 9 * 60 + 10;                     // nadie intenta por el tee 10 después de las 9:10
 
 // Horas a intentar coger. ps: [{franja, n (jugadores), numero}] → añade t1 y t10 ("HH:MM").
-// Cada partida intenta tantas horas como jugadores; siempre primero el tee 1.
-//  · Sola en su franja: todas por el tee 1 (8:30, 8:40, 8:50, 9:00).
-//  · Varias: 2 horas seguidas por el tee 1, escalonadas 10 min; por el tee 10 las mismas
-//    (la de 3 solo la primera). El tee 10 se puede pisar y solo hasta las 9:10.
+// Cada franja tiene 4 salidas por el tee 1 (8:30, 8:40, 8:50, 9:00); siempre primero el tee 1.
+//  · 1 partida: tantas salidas como jugadores, todas por el tee 1.
+//  · 2 partidas: 2 salidas cada una, sin solaparse (8:30–8:40 y 8:50–9:00).
+//  · 3 partidas: 2 salidas cada una, solapando (8:30–8:40, 8:40–8:50, 8:50–9:00).
+//  · Tee 10: las mismas horas (la de 3 solo la primera), hasta las 9:10; las dos primeras
+//    partidas de la franja de las 9:00 pueden intentar 9:00 y 9:10.
+//  · Si la franja anterior ya usa la primera salida, con 1 o 2 partidas se corre: la partida sola
+//    empieza tras la última salida usada; dos partidas empiezan 10 min más tarde.
 function calcHoras(ps) {
   const porF = {};
   ps.forEach((p) => { if (p.franja) (porF[p.franja] = porF[p.franja] || []).push(p); });
-  Object.entries(porF).forEach(([f, lista]) => {
-    const S = toMin(f);
+  let ultimo = null;   // última salida por el tee 1 usada por la franja anterior
+  Object.keys(porF).sort((a, b) => toMin(a) - toMin(b)).forEach((f) => {
+    const S = toMin(f), lista = porF[f];
     const orden = [...lista].sort((a, b) => (a.n === 3 ? 0 : 1) - (b.n === 3 ? 0 : 1) || a.numero - b.numero);
-    orden.forEach((p, i) => {
-      if (!p.n) { p.t1 = []; p.t10 = []; return; }
-      if (orden.length === 1) { p.t1 = Array.from({ length: p.n }, (_, m) => S + 10 * m); p.t10 = []; }
-      else {
-        // desde las 9:30 (sin tee 10), dos partidas no se pisan: 9:30–9:40 y 9:50–10:00
-        p.t1 = S > MAX10 && orden.length === 2 ? [S + 20 * i, S + 20 * i + 10] : [S + 10 * i, S + 10 * (i + 1)];
+    const pisada = ultimo != null && ultimo >= S;
+    const W = pisada ? S + 10 : S;
+    const activas = orden.filter((p) => p.n);
+    orden.forEach((p) => { if (!p.n) { p.t1 = []; p.t10 = []; } });
+    activas.forEach((p, i) => {
+      if (activas.length === 1) {
+        const ini = pisada ? ultimo + 10 : S;
+        p.t1 = Array.from({ length: p.n }, (_, m) => ini + 10 * m); p.t10 = [];
+      } else {
+        p.t1 = activas.length === 2 ? [W + 20 * i, W + 20 * i + 10] : [S + 10 * i, S + 10 * (i + 1)];
         const quiere = Math.max(0, p.n - 2), libres = [S, S + 10].filter((m) => m <= MAX10);
         let t10 = p.t1.filter((m) => m <= MAX10);
-        // franja de las 9:00: las dos primeras partidas pueden intentar 9:00 y 9:10
         if (t10.length < quiere && i < 2) libres.forEach((m) => { if (t10.length < quiere && !t10.includes(m)) t10.push(m); });
         p.t10 = t10.slice(0, quiere).sort((a, b) => a - b);
       }
-      p.t1 = p.t1.map(toHM); p.t10 = p.t10.map(toHM);
     });
+    const usados = activas.flatMap((p) => p.t1);
+    if (usados.length) ultimo = Math.max(...usados);
+    activas.forEach((p) => { p.t1 = p.t1.map(toHM); p.t10 = p.t10.map(toHM); });
   });
-  ps.forEach((p) => { if (!p.franja) { p.t1 = p.t1 || []; p.t10 = p.t10 || []; } });
+  ps.forEach((p) => { p.t1 = p.t1 || []; p.t10 = p.t10 || []; });
   return ps;
 }
 
@@ -389,7 +399,7 @@ function Inicio2({ ctx }) {
   const j = proxima(jornadas);
   const [modal, setModal] = useState(null);
   const [d, cargar] = useCache(j && inscribible(j) ? `jor_${j.id}` : null, () => cargarJornadaQ(j.id, yo), [j && j.id]);
-  const [avisosC] = useCache("avisos", () => q(sb.from("avisos").select("*").order("creado", { ascending: false }).limit(5)), []);
+  const [avisosC] = useCache("avisos", () => q(sb.from("avisos").select("*").gte("creado", new Date(Date.now() - 14 * 864e5).toISOString()).order("creado", { ascending: false }).limit(5)), []);
   const avisos = avisosC || [];
 
   let tarjeta;
@@ -549,12 +559,8 @@ function textoWa(tipo, j, parts, ins) {
   const cab = `Gambipool · ${nombreJ(j)} · ${fechaJ(j)}\n${j.campo}${j.barras ? " · barras " + j.barras : ""}${j.tipo === "major" ? " · Major" : ""}`;
   if (tipo === "abierta") return `${cab}\n\nAbierta la inscripción hasta el ${fmtPlazo(j.cierre)}.\nApúntate en la app: ${URL_APP}`;
   if (tipo === "cerrada") return `${cab}\n\nCerrada la inscripción: ${ins.length} inscritos.\nEl horario se publica el ${fmtPlazo(j.horario_at)}.\n${URL_APP}`;
-  const lin = parts.map((p) => {
-    const js = ins.filter((x) => x.partida_id === p.id).map((x) => x.nombre_corto).join(", ");
-    const h = p.salida_hora ? `Salida ${hmBonito(hm(p.salida_hora))} · Tee ${p.salida_tee}` : [p.t1.length && "Tee 1: " + p.t1.map(hmBonito).join(", "), p.t10.length && "Tee 10: " + p.t10.map(hmBonito).join(", ")].filter(Boolean).join(" | ");
-    return `Partida ${p.numero}: ${js || "—"}${h ? "\n   " + h : ""}`;
-  }).join("\n");
-  return `${cab}\n\nHorario:\n${lin}${j.tipo !== "fuera" && j.reserva ? `\n\nReserva en la web del club el ${fmtPlazo(j.reserva)}.` : ""}\n${URL_APP}`;
+  const verbo = tipo === "horario2" ? "Se ha actualizado el horario" : "Ya está publicado el horario";
+  return `${cab}\n\n${verbo}. Mira tu partida y las horas a intentar en la app: ${URL_APP}${j.tipo !== "fuera" && j.reserva ? `\nReserva en la web del club el ${fmtPlazo(j.reserva)}.` : ""}`;
 }
 
 function GestionJornada({ ctx, id }) {
@@ -645,7 +651,7 @@ function GestionJornada({ ctx, id }) {
         <p class="muted" style=${{ margin: "4px 0 0" }}>${pend.map((p) => "Partida " + p.numero).join(", ")}${j.horario_publicado ? ". El horario ya está publicado: si recalculas, avisa al grupo." : "."}</p>
         <button class="btn small" disabled=${trabajando} onClick=${recalcular}>Recalcular horas</button></div>`}
       ${avisoWa && html`<div class="card"><b>Horas recalculadas</b><p class="muted" style=${{ margin: "4px 0 0" }}>Manda el horario corregido al grupo.</p>
-        <button class="btn small" onClick=${() => { compartirWa(textoWa("horario", j, parts, ins)); setAvisoWa(false); }}>Compartir por WhatsApp</button></div>`}
+        <button class="btn small" onClick=${() => { compartirWa(textoWa("horario2", j, parts, ins)); setAvisoWa(false); }}>Compartir por WhatsApp</button></div>`}
       ${sinPartida.length > 0 && html`<div class="ed"><div class="t"><b>Sin partida</b><span>${sinPartida.length}</span></div>
         ${sinPartida.map((x) => html`<div class="chip" key=${x.jugador_id}>${x.nombre_corto} <span class="muted">${x.franja ? hmBonito(hm(x.franja)) : ""}</span>
           <select class="mv" value="" onChange=${(e) => mover(x, e.target.value)}><option value="">Mover a…</option>${parts.map((p) => html`<option key=${p.id} value=${p.id}>Partida ${p.numero}</option>`)}</select></div>`)}</div>`}

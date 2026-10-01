@@ -533,11 +533,12 @@ function App() {
   const pilaRef = React.useRef(pila); pilaRef.current = pila;
   const recargaRef = React.useRef(null);
   useEffect(() => {
-    const pop = () => { if (!pilaRef.current.length) return; cacheBorrar("jor_"); setPila((p) => p.slice(0, -1)); recargaRef.current && recargaRef.current(); };
+    let pops = 0;   // si el iPhone ya ha vuelto atrás con su propio gesto, el nuestro no hace nada
+    const pop = () => { pops++; if (!pilaRef.current.length) return; cacheBorrar("jor_"); setPila((p) => p.slice(0, -1)); recargaRef.current && recargaRef.current(); };
     window.addEventListener("popstate", pop);
-    let x0 = null, y0 = 0;
-    const ini = (e) => { const t = e.touches[0]; x0 = t.clientX < 24 && pilaRef.current.length ? t.clientX : null; y0 = t.clientY; };
-    const finT = (e) => { if (x0 == null) return; const t = e.changedTouches[0]; if (t.clientX - x0 > 70 && Math.abs(t.clientY - y0) < 60) history.back(); x0 = null; };
+    let x0 = null, y0 = 0, p0 = 0;
+    const ini = (e) => { const t = e.touches[0]; x0 = t.clientX < 24 && pilaRef.current.length ? t.clientX : null; y0 = t.clientY; p0 = pops; };
+    const finT = (e) => { if (x0 == null) return; const t = e.changedTouches[0]; if (t.clientX - x0 > 70 && Math.abs(t.clientY - y0) < 60) { const desde = p0; setTimeout(() => { if (pops === desde) history.back(); }, 450); } x0 = null; };
     const ios = window.navigator.standalone === true;   // en el navegador ya existe el gesto propio
     if (ios) { document.addEventListener("touchstart", ini, { passive: true }); document.addEventListener("touchend", finT, { passive: true }); }
     return () => { window.removeEventListener("popstate", pop); if (ios) { document.removeEventListener("touchstart", ini); document.removeEventListener("touchend", finT); } };
