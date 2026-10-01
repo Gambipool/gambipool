@@ -554,7 +554,17 @@ function ventanaHoras(fr, marcadas, tee10) {
   return [...set].sort((a, b) => toMin(a) - toMin(b));
 }
 const URL_APP = "https://gambipool.github.io/gambipool/";
-function compartirWa(t) { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); }
+// Abre WhatsApp directamente (sin pasar por Safari, que dejaba una pantalla en blanco al volver).
+// Si en 2,5 s la app no ha pasado a segundo plano (no hay WhatsApp), usa el enlace web.
+function compartirWa(t) {
+  const txt = encodeURIComponent(t);
+  if (!/iphone|ipad|ipod|android/i.test(navigator.userAgent)) return window.open("https://wa.me/?text=" + txt, "_blank");
+  let salio = false;
+  const vis = () => { if (document.hidden) salio = true; };
+  document.addEventListener("visibilitychange", vis);
+  window.location.href = "whatsapp://send?text=" + txt;
+  setTimeout(() => { document.removeEventListener("visibilitychange", vis); if (!salio && !document.hidden) window.open("https://wa.me/?text=" + txt, "_blank"); }, 2500);
+}
 function textoWa(tipo, j, parts, ins) {
   const cab = `Gambipool · ${nombreJ(j)} · ${fechaJ(j)}\n${j.campo}${j.barras ? " · barras " + j.barras : ""}${j.tipo === "major" ? " · Major" : ""}`;
   if (tipo === "abierta") return `${cab}\n\nAbierta la inscripción hasta el ${fmtPlazo(j.cierre)}.\nApúntate en la app: ${URL_APP}`;
