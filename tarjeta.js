@@ -86,9 +86,19 @@ function TarjetaTab({ ctx }) {
   const hoy = hoyMadrid();
   const j = jornadas.find((x) => inscribible(x) && x.estado === "programada" && x.fecha <= hoy && fin(x) >= hoy);
   const [mia, setMia] = useState(undefined);
-  useEffect(() => { if (!j) return; sb.from("inscripciones").select("id, partida_id, estado").eq("jornada_id", j.id).eq("jugador_id", yo.id).maybeSingle().then(({ data }) => setMia(data && data.estado === "inscrito" ? data : null)); }, [j && j.id]);
+  const [fallo, setFallo] = useState(false);
+  useEffect(() => {
+    if (!j) return; let vivo = true, t;
+    const ir = async () => {
+      let res; try { res = await sb.from("inscripciones").select("id, partida_id, estado").eq("jornada_id", j.id).eq("jugador_id", yo.id).maybeSingle(); } catch (e) { res = { error: e }; }
+      if (!vivo) return;
+      if (res.error) { setFallo(true); t = setTimeout(ir, 5000); return; }   // sin red: reintenta, no dice "no inscrito"
+      setFallo(false); setMia(res.data && res.data.estado === "inscrito" ? res.data : null);
+    };
+    ir(); return () => { vivo = false; clearTimeout(t); };
+  }, [j && j.id]);
   if (!j) { const p = proxima(jornadas); return html`<div class="card"><h3>Hoy no hay jornada</h3><p class="muted" style=${{ margin: 0 }}>${p ? `La próxima es la ${nombreJ(p)}, el ${fmtDiaLargo(p.fecha).toLowerCase()}.` : "No quedan jornadas en el calendario."}</p></div>`; }
-  if (mia === undefined) return html`<${Spinner}/>`;
+  if (mia === undefined) return fallo ? html`<div class="card"><h3>${nombreJ(j)} · hoy</h3><p class="muted" style=${{ margin: 0 }}>Sin conexión. Reintentando…</p></div>` : html`<${Spinner}/>`;
   if (!mia) return html`<div class="card"><h3>${nombreJ(j)} · hoy</h3><p class="muted" style=${{ margin: 0 }}>No estás inscrito en esta jornada.</p><button class="btn sec" style=${{ marginTop: "12px" }} onClick=${() => ctx.setTab("clasificacion")}>Ver el directo</button></div>`;
   if (!mia.partida_id) return html`<div class="card"><h3>${nombreJ(j)} · hoy</h3><p class="muted" style=${{ margin: 0 }}>Todavía no estás en ninguna partida. Habla con el comité.</p></div>`;
   return html`<${Tarjeta} key=${mia.partida_id} ctx=${ctx} pid=${mia.partida_id}/>`;
@@ -104,15 +114,18 @@ function Tarjeta({ ctx, pid, comite }) {
   const [modal, setModal] = useState(null);
   const [err, setErr] = useState("");
   const [cola, setCola] = useState(leerCola().length);
+  const [sinSenal, setSinSenal] = useState(false);   // solo true si un envío ha fallado de verdad
 
   const version = React.useRef(0);
+  const iniciada = React.useRef(false);             // ya se colocó el hoyo inicial
   const cargar = useCallback(async (primera) => {
     try {
       const v0 = version.current;
       const r = await cargarPartida(pid);
       if (!primera && v0 !== version.current) return;   // se anotó algo mientras cargaba: manda lo de pantalla
       setD(r); setMarcador(r.p.marcador_id);
-      if (primera) {
+      if (!iniciada.current) {                      // primera carga buena (aunque la primera fallara sin red)
+        iniciada.current = true; setErr("");
         const orden = ordenHoyos(r.p.salida_tee);
         const activos = r.jug.filter((x) => !x.retirado);
         const k = orden.findIndex((h) => activos.some((x) => !(r.golpes[x.inscripcion_id] || {})[h]));
@@ -127,7 +140,7 @@ function Tarjeta({ ctx, pid, comite }) {
       if (!comite) { const { data } = await sb.rpc("abrir_tarjeta", { p_partida: pid }); if (data) setMarcador(data); }
       await cargar(true);
     })();
-    const t = setInterval(async () => { if (document.hidden) return; const r = await enviarCola(); setCola(r.pendientes); if (r.errores.length) setErr(r.errores[0]); cargar(false); }, 20000);
+    const t = setInterval(async () => { if (document.hidden) return; const r = await enviarCola(); setCola(r.pendientes); setSinSenal(r.pendientes > 0); if (r.errores.length) setErr(r.errores[0]); cargar(false); }, 20000);
     const upd = () => setCola(leerCola().length);
     window.addEventListener("gp-cola", upd);
     return () => { clearInterval(t); window.removeEventListener("gp-cola", upd); };
@@ -149,21 +162,22 @@ function Tarjeta({ ctx, pid, comite }) {
   const completo = (h) => jug.every((x) => x.retirado || g(x, h));
   const va = (x) => orden.reduce((s, h) => (g(x, h) ? s + g(x, h) - H(h).par : s), 0);
 
-  const encolar = (item) => { const c = leerCola(); c.push(item); guardarCola(c); setCola(c.length); enviarCola().then((r) => { setCola(r.pendientes); if (r.errores.length) { setErr(r.errores[0]); cargar(false); } }); };
+  const encolar = (item) => { const c = leerCola(); c.push(item); guardarCola(c); setCola(c.length); enviarCola().then((r) => { setCola(r.pendientes); setSinSenal(r.pendientes > 0); if (r.errores.length) { setErr(r.errores[0]); cargar(false); } }); };
   const poner = (x, h, v) => {
     const ng = { ...golpes, [x.inscripcion_id]: { ...(golpes[x.inscripcion_id] || {}) } };
     if (v == null) delete ng[x.inscripcion_id][h]; else ng[x.inscripcion_id][h] = v;
     version.current++; setD({ ...d, golpes: ng }); setErr("");
     encolar({ t: "g", i: x.inscripcion_id, h, g: v });
   };
-  const siguienteSinGolpe = (x) => { const k0 = jug.indexOf(x); const rot = [...jug.slice(k0 + 1), ...jug.slice(0, k0)]; return rot.find((y) => !y.retirado && !g(y, hoyo)); };
+  const siguienteSinGolpe = (x) => { const k0 = jug.findIndex((y) => y.inscripcion_id === x.inscripcion_id); const rot = [...jug.slice(k0 + 1), ...jug.slice(0, k0)]; return rot.find((y) => !y.retirado && !g(y, hoyo)); };
   const elegir = (x, v) => {
     if (golpeRaro(v, hh.par)) return setModal({ raro: { x, v } });
     poner(x, hoyo, v);
     const sig = siguienteSinGolpe(x);
     setModal(sig ? { teclado: sig } : null);
   };
-  const retirar = (x, r) => { version.current++; setD({ ...d, jug: jug.map((y) => (y === x ? { ...y, retirado: r } : y)) }); encolar({ t: "r", i: x.inscripcion_id, r }); setModal(null); };
+  const retirar = (x, r) => { version.current++; setD({ ...d, jug: jug.map((y) => (y.inscripcion_id === x.inscripcion_id ? { ...y, retirado: r } : y)) }); encolar({ t: "r", i: x.inscripcion_id, r }); setModal(null); };
+  const irDirecto = () => { recordar("sub", "jornada"); ctx.setTab("clasificacion"); window.scrollTo(0, 0); };
   const relevo = async () => { const { error } = await sb.rpc("tomar_relevo", { p_partida: p.id }); setModal(null); if (error) return setErr(errTxt(error)); setMarcador(yo.id); };
   const validar = async () => {
     setModal(null); await enviarCola();
@@ -174,7 +188,7 @@ function Tarjeta({ ctx, pid, comite }) {
 
   const cabecera = html`<div class="tband"><small>${nombreJ(j)} · Partida ${p.numero} · Tee ${p.salida_tee || 1}</small>
     <div class="tira">${orden.map((h, k) => html`<button key=${h} class=${k === idx && vista === "hoyo" ? "on" : completo(h) ? "ok" : ""} onClick=${() => { setIdx(k); setVista("hoyo"); }}>${h}</button>`)}</div></div>`;
-  const avisos = html`${cola > 0 && html`<div class="offl">Sin cobertura · ${cola} ${cola === 1 ? "golpe guardado" : "golpes guardados"} en el móvil. Se envían solos al recuperar señal.</div>`}
+  const avisos = html`${cola > 0 && sinSenal && html`<div class="offl">Sin cobertura · ${cola} ${cola === 1 ? "golpe guardado" : "golpes guardados"} en el móvil. Se envían solos al recuperar señal.</div>`}
     ${err && html`<div class="err" style=${{ margin: "10px 12px 0" }}>${err}</div>`}
     ${validada && html`<div class="aviso">Tarjeta validada${comite ? "" : ". Si hay un error, avisad al comité"}.</div>`}
     ${!validada && !j.cerrada && !comite && !soyMarcador && html`<div class="aviso">${nomMarc ? html`Anota <b>${nomMarc}</b>. Tú solo ves la tarjeta.` : "Todavía no anota nadie."}</div>`}`;
@@ -186,6 +200,7 @@ function Tarjeta({ ctx, pid, comite }) {
         ${puedeEditar && !validada && html`<button class="btn" onClick=${() => setModal("validar")}>Validar tarjeta</button>`}
         ${comite && validada && !j.cerrada && html`<button class="btn sec" onClick=${reabrir}>Reabrir tarjeta</button>`}
         ${!validada && html`<button class="btn sec" onClick=${() => setVista("hoyo")}>Volver a la tarjeta</button>`}
+        ${!comite && html`<button class="btn sec" onClick=${irDirecto}>Clasificación en directo</button>`}
       </div></div>`;
   } else {
     cuerpo = html`<div>
@@ -202,6 +217,7 @@ function Tarjeta({ ctx, pid, comite }) {
       </div>
       <div style=${{ margin: "0 12px 20px" }}>
         ${idx < 17 && html`<button class="btn sec" onClick=${() => setVista("resumen")}>Ver resumen</button>`}
+        ${!comite && html`<button class="btn sec" onClick=${irDirecto}>Clasificación en directo</button>`}
         ${!comite && enPartida && !soyMarcador && !validada && !j.cerrada && html`<button class="btn sec" onClick=${() => setModal("relevo")}>Tomar el relevo como marcador</button>`}
       </div></div>`;
   }
@@ -216,7 +232,7 @@ function Tarjeta({ ctx, pid, comite }) {
     </div></div>`;
   } else if (modal && modal.mas10) {
     const x = modal.mas10;
-    hoja = html`<${MasDiez} x=${x} hoyo=${hoyo} par=${hh.par} volver=${() => setModal({ teclado: x })} guardar=${(n) => { poner(x, hoyo, n); const sig = siguienteSinGolpe(x); setModal(sig ? { teclado: sig } : null); }}/>`;
+    hoja = html`<${MasDiez} x=${x} hoyo=${hoyo} par=${hh.par} volver=${() => setModal({ teclado: x })} guardar=${(n) => setModal({ raro: { x, v: n } })}/>`;
   } else if (modal && modal.raro) {
     const { x, v } = modal.raro;
     hoja = html`<div class="modal"><div class="sheet"><h3>¿Seguro?</h3>
@@ -243,12 +259,14 @@ function Tarjeta({ ctx, pid, comite }) {
   return html`<div>${cabecera}${avisos}${cuerpo}${hoja}</div>`;
 }
 
+// Más de 10 golpes: botonera 11–20 (y 21–30), sin teclado del móvil
 function MasDiez({ x, hoyo, par, volver, guardar }) {
-  const [v, setV] = useState("");
-  const n = parseInt(v, 10);
-  return html`<div class="modal"><div class="sheet"><h3>${x.nombre_corto}</h3><div class="muted">Hoyo ${hoyo} · Par ${par} · más de 10 golpes</div>
-    <input class="inp inpbig num" inputmode="numeric" autofocus value=${v} onInput=${(e) => setV(e.target.value.replace(/\D/g, "").slice(0, 2))}/>
-    <button class="btn" disabled=${!(n >= 11 && n <= 30)} onClick=${() => guardar(n)}>Guardar</button><button class="btn sec" onClick=${volver}>Volver al teclado</button></div></div>`;
+  const [alto, setAlto] = useState(false);
+  const nums = alto ? [21, 22, 23, 24, 25, 26, 27, 28, 29, 30] : [11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+  return html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && volver()}><div class="sheet"><h3>${x.nombre_corto}</h3><div class="muted">Hoyo ${hoyo} · Par ${par} · más de 10 golpes</div>
+    <div class="kp num">${nums.map((n) => html`<button key=${n} onClick=${() => guardar(n)}>${n}</button>`)}
+      <button class="mas" onClick=${() => setAlto(!alto)}>${alto ? "11–20" : "21–30"}</button><button class="del" onClick=${volver}>Volver</button></div>
+  </div></div>`;
 }
 
 const sumaGolpes = (golpes, x) => { const o = golpes[x.inscripcion_id] || {}; const v = Object.values(o); return { n: v.length, t: v.reduce((a, b) => a + b, 0) }; };
