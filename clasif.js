@@ -3,6 +3,12 @@
 const recordar = (k, v) => { try { if (v === undefined) return sessionStorage.getItem("gp_" + k); sessionStorage.setItem("gp_" + k, v); } catch (e) { return null; } };
 const numPts = (x) => { const n = +x; return Number.isInteger(n) ? String(n) : String(n).replace(".", ","); };
 const posiciones = (arr, val) => arr.map((p) => { const v = val(p); const first = arr.findIndex((q) => val(q) === v); const tie = arr.filter((q) => val(q) === v).length > 1; return { t: tie, n: first + 1 }; });
+// Puesto en una jornada cerrada: si empata del todo (mismo resultado y mismo hcp exacto) con otros, "T" + el mejor puesto del grupo
+function puestoJ(rs, r) {
+  if (!r || r.retirado || r.posicion == null) return "";
+  const g = rs.filter((x) => !x.retirado && x.categoria === r.categoria && x.resultado === r.resultado && +x.hcp_exacto === +r.hcp_exacto);
+  return g.length > 1 ? "T" + Math.min(...g.map((x) => x.posicion)) : String(r.posicion);
+}
 const Flecha = ({ m }) => (m > 0 ? html`<small class="up">▲${m}</small>` : m < 0 ? html`<small class="dn">▼${-m}</small>` : null);
 const SegCat = ({ cat, setCat }) => html`<div class="seg2">${[["scratch", "Scratch"], ["handicap", "Hándicap"]].map(([k, l]) => html`<button key=${k} class=${cat === k ? "on" : ""} onClick=${() => { setCat(k); recordar("cat", k); }}>${l}</button>`)}</div>`;
 
@@ -97,7 +103,7 @@ function ResultadoJornada({ ctx, j, cat }) {
   return html`<div class="clw">
     <div class="cl p5 h"><span>#</span><span>Jugador</span><span>Hcp</span><span>${cat === "scratch" ? "Bruto" : "Neto"}</span><span>Pts</span></div>
     ${ok.map((r) => html`<button key=${r.id} class=${"cl p5" + (me(r) ? " me" : "")} onClick=${() => r.jugador_id && go("tarjeta-jugador", `${j.id}|${r.jugador_id}|${cat}`)}>
-      <span class="p">${r.posicion}</span><span class="nm">${r.nombre}</span><span class=${"mu" + (empate(r) ? " de" : "")}>${numES(r.hcp_exacto)}</span><span>${r.resultado ?? "—"}</span><span><b>${numPts(r.total)}</b></span></button>`)}
+      <span class="p">${puestoJ(ok, r)}</span><span class="nm">${r.nombre}</span><span class=${"mu" + (empate(r) ? " de" : "")}>${numES(r.hcp_exacto)}</span><span>${r.resultado ?? "—"}</span><span><b>${numPts(r.total)}</b></span></button>`)}
     ${ret.map((r) => html`<div key=${r.id} class="cl p5 ret"><span class="p">—</span><span class="nm">${r.nombre}</span><span class="mu">${numES(r.hcp_exacto)}</span><span>Ret.</span><span>${numPts(r.total)}</span></div>`)}
   </div>`;
 }
@@ -150,7 +156,7 @@ function TarjetaJugador({ ctx, p }) {
     const { data: j } = await sb.from("jornadas").select("*").eq("id", +jid).single();
     const [{ data: ins }, { data: rs }, hoyos] = await Promise.all([
       sb.rpc("inscritos", { p_jornada: +jid }),
-      sb.from("resultados").select("*").eq("jornada_id", +jid).eq("jugador_id", uid).eq("categoria", cat),
+      sb.from("resultados").select("*").eq("jornada_id", +jid).eq("categoria", cat),
       cargarHoyos(j.campo),
     ]);
     const x = (ins || []).find((y) => y.jugador_id === uid);
@@ -160,7 +166,8 @@ function TarjetaJugador({ ctx, p }) {
       golpes = { [x.inscripcion_id]: Object.fromEntries((gs || []).map((g) => [g.hoyo, g.golpes])) }; est = e || {};
     }
     if (!vivo) return;
-    setD({ j, x: x ? { ...x, ...est, ini: "Golpes" } : null, r: (rs || [])[0], golpes, hoyos });
+    const r = (rs || []).find((y) => y.jugador_id === uid);
+    setD({ j, x: x ? { ...x, ...est, ini: "Golpes" } : null, r: r ? { ...r, pt: puestoJ(rs, r) } : undefined, golpes, hoyos });
     // jornada en juego: se actualiza sola cada 30 s, como el directo
     if (!j.cerrada && !t) t = setInterval(() => !document.hidden && cargar(), 30000);
   }; cargar(); return () => { vivo = false; t && clearInterval(t); }; }, [p]);
@@ -172,7 +179,7 @@ function TarjetaJugador({ ctx, p }) {
   const parJug = Object.keys(o).reduce((s, h) => s + ((hoyos.find((q) => q.hoyo === +h) || {}).par || 0), 0);
   const tieneTarjeta = x && n > 0 && hoyos.length;
   return html`<div>
-    <div class="gbh"><span class="num">${r && r.posicion ? r.posicion + "." : ""}</span><b>${nombre}</b>
+    <div class="gbh"><span class="num">${r && r.pt ? r.pt + "." : ""}</span><b>${nombre}</b>
       <span class="num">${n === 18 ? bruto : x && x.bruto_manual != null ? x.bruto_manual : ""}</span>
       <span class=${"num rl" + (bruto - parJug < 0 ? " neg" : "")}>${n ? relPar(bruto - parJug) : ""}</span><span>${n === 18 ? "F" : n || ""}</span></div>
     ${tieneTarjeta ? html`<${ResumenTarjeta} jug=${[x]} golpes=${golpes} hoyos=${hoyos}/>`
@@ -243,14 +250,14 @@ function TuResultado({ ctx }) {
   const ult = [...jornadas].filter((j) => j.cerrada && inscribible(j)).sort((a, b) => a.fecha.localeCompare(b.fecha)).pop();
   const lista = jornadas.filter((j) => inscribible(j) && j.numero);
   const [rk] = useCache(ult ? claveRanking(temporada, lista, true) : null, () => cargarRanking(temporada, lista, true), [ult && ult.id]);
-  const [mis] = useCache(ult ? `mires_${ult.id}` : null, async () => (await q(sb.from("resultados").select("*").eq("jornada_id", ult.id))).filter((r) => r.jugador_id === yo.id || r.nombre === yo.nombre_corto), [ult && ult.id]);
+  const [mis] = useCache(ult ? `mires_${ult.id}` : null, async () => { const todos = await q(sb.from("resultados").select("*").eq("jornada_id", ult.id)); return todos.filter((r) => r.jugador_id === yo.id || r.nombre === yo.nombre_corto).map((r) => ({ ...r, pt: puestoJ(todos, r) })); }, [ult && ult.id]);
   const d = useMemo(() => {
     if (!rk || !mis) return null;
     const pos = (cat) => (rk.R[cat].find((o) => o.jid === yo.id || o.n === yo.nombre_corto) || null);
     return { s: mis.find((r) => r.categoria === "scratch"), h: mis.find((r) => r.categoria === "handicap"), rs: pos("scratch"), rh: pos("handicap") };
   }, [rk, mis]);
   if (!ult || !d || (!d.rs && !d.s)) return null;
-  const cel = (r, t) => html`<div><b>${r ? (r.retirado ? "Ret." : r.posicion + "º") : "—"}</b><span>${t}${r && !r.retirado ? " · " + r.resultado : ""}</span></div>`;
+  const cel = (r, t) => html`<div><b>${r ? (r.retirado ? "Ret." : (r.pt || r.posicion) + "º") : "—"}</b><span>${t}${r && !r.retirado ? " · " + r.resultado : ""}</span></div>`;
   return html`<div class="card"><span class="tag gold">Tu resultado · ${nombreJ(ult)}</span>
     ${(d.s || d.h) ? html`<div class="count">${cel(d.s, "Scratch")}${cel(d.h, "Hándicap")}</div>` : html`<p class="muted">No jugaste la ${nombreJ(ult)}.</p>`}
     ${d.rs && html`<div class="kv" style=${{ marginTop: "8px" }}><span>Ranking scratch</span><b>${d.rs.tie ? "T" : ""}${d.rs.pos}º <${Flecha} m=${d.rs.mv}/></b></div>`}

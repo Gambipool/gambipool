@@ -544,14 +544,17 @@ function App() {
     return () => { window.removeEventListener("popstate", pop); if (ios) { document.removeEventListener("touchstart", ini); document.removeEventListener("touchend", finT); } };
   }, []);
 
-  // Pantalla de bienvenida: se funde con la app cuando ya hay algo que enseñar (mínimo 1,5 s)
+  // Pantalla de bienvenida: se ve 1,5 s desde que la foto está pintada y luego se funde con la app
   const listo = session !== undefined && (session === null || yo !== undefined);
   useEffect(() => {
     if (!listo) return;
     const el = document.getElementById("splash"); if (!el || el.classList.contains("fuera")) return;
-    const espera = Math.max(0, 1500 - performance.now());
-    const t = setTimeout(() => { el.classList.add("fuera"); setTimeout(() => el.remove(), 700); }, espera);
-    return () => clearTimeout(t);
+    let vivo = true, t = null;
+    (window.__bv || Promise.resolve(false)).then((pintada) => {
+      if (!vivo) return;
+      t = setTimeout(() => { el.classList.add("fuera"); setTimeout(() => el.remove(), 700); }, pintada ? 1500 : 0);
+    });
+    return () => { vivo = false; t && clearTimeout(t); };
   }, [listo]);
 
   // Golpes pendientes: se envían al abrir la app y al volver a ella
