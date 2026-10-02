@@ -1,3 +1,9 @@
+/* Tipos de letra dentro de la app (no dependen de Google al abrir) */
+@font-face{font-family:"Lora";font-weight:500;font-style:normal;font-display:swap;src:url(fonts/lora-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Lora";font-weight:700;font-style:normal;font-display:swap;src:url(fonts/lora-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"Source Sans 3";font-weight:400;font-style:normal;font-display:swap;src:url(fonts/source-sans-3-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Source Sans 3";font-weight:600;font-style:normal;font-display:swap;src:url(fonts/source-sans-3-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Source Sans 3";font-weight:700;font-style:normal;font-display:swap;src:url(fonts/source-sans-3-latin-700-normal.woff2) format("woff2")}
 /* ===== Tema (cambiar aquí para otro tono) ===== */
 :root{
   --hd:#1f3d2b; --bg:#f6f2e8; --ink:#1f2a22; --acc:#c8a24a; --accdark:#8a6d1f;
@@ -12,6 +18,7 @@ html,body{margin:0;height:100%}
    Lo que se ve de la app lo cubre #root, que es crema */
 html{background:var(--bg)}
 body{background:var(--hd);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.4}
+@media (min-width:561px){body{background:var(--bg)}}   /* iPad, ordenador o móvil en horizontal: sin bandas verdes a los lados */
 #root{min-height:100%;display:flex;flex-direction:column;max-width:560px;margin:0 auto;background:var(--bg)}
 button,input,select{font:inherit}
 .num{font-variant-numeric:tabular-nums}
@@ -24,7 +31,7 @@ button,input,select{font:inherit}
 .hd h1{font-family:var(--serif);font-weight:700;font-size:24px;margin:4px 0 0}
 .hd .back{display:block;background:none;border:0;color:var(--bg);opacity:.85;padding:0;margin-bottom:6px;font-size:14px;cursor:pointer}
 .hd .lock{position:absolute;right:12px;top:calc(12px + env(safe-area-inset-top));background:none;border:0;color:var(--bg);opacity:.85;padding:8px;cursor:pointer}
-.tabs{display:flex;background:var(--hd);padding:0 12px;position:sticky;z-index:4}
+.tabs{display:flex;background:var(--hd);padding:0 12px;position:sticky;top:var(--hdh,0);z-index:4}
 .tabs button{flex:1;background:none;border:0;color:var(--tabdim);font-weight:600;font-size:14px;padding:10px 0;border-bottom:3px solid transparent;cursor:pointer}
 .tabs button.on{color:#fff;border-color:var(--acc)}
 
@@ -158,7 +165,7 @@ select.inp{appearance:auto}
 .tband small{display:block;letter-spacing:.12em;text-transform:uppercase;font-size:11px;opacity:.8;padding:0 2px 8px}
 .tira{display:flex;gap:2px}
 .tira button{flex:1;min-width:0;text-align:center;font-size:11px;color:var(--tabdim);padding:5px 0;border-radius:2px;background:rgba(255,255,255,.07);border:0;cursor:pointer;font-variant-numeric:tabular-nums}
-.tira button.ok{background:rgba(255,255,255,.22);color:#fff}
+.tira button.ok{background:rgba(255,255,255,.22);color:#fff;margin:0;padding:5px 0;border-radius:2px;font-size:11px}
 .tira button.on{background:var(--acc);color:var(--hd);font-weight:700}
 .hoyo{display:grid;grid-template-columns:repeat(4,1fr);background:#fff;border-bottom:1px solid var(--line)}
 .hoyo div{text-align:center;padding:8px 0;border-right:1px solid var(--line2)}.hoyo div:last-child{border-right:0}
@@ -173,7 +180,7 @@ select.inp{appearance:auto}
 .mk{font-size:10px;font-weight:700;text-transform:uppercase;background:var(--hl);color:var(--accdark);padding:1px 5px;border-radius:3px;vertical-align:2px}
 .cell{width:48px;height:48px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;font-size:22px;font-weight:700;font-family:var(--serif);background:#fff;color:var(--ink);padding:0;cursor:pointer}
 .cell:disabled{cursor:default;opacity:1}
-.cell.ed{border-color:var(--hd)}.cell.vac{border:2px dashed var(--acc);background:var(--hl)}
+.cell.ed{border-color:var(--hd);margin:0;background:#fff}.cell.vac{border:2px dashed var(--acc);background:var(--hl)}
 .cell:not(.ed).vac{border:1px dashed var(--line);background:#fff}
 .retx{font-size:12px;font-weight:700;color:var(--warn);text-align:center;grid-column:3/5}
 .sc-t{text-align:right;font-size:13px;color:var(--muted)}
@@ -263,3 +270,8 @@ select.inp{appearance:auto}
 
 /* Franja fija detrás de la hora y la batería (app instalada) */
 body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:var(--hd);z-index:40;pointer-events:none}
+
+/* Golpes que el servidor no aceptó (tarjeta) */
+.rech{background:var(--warnbg);color:var(--warn);font-size:14px;padding:10px 14px;border-bottom:1px solid #f0d3c8}
+.rech small{display:block;margin-top:4px;opacity:.85}
+.rech .btns{margin-top:8px}

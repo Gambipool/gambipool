@@ -59,13 +59,14 @@ function Clasificacion({ ctx }) {
   const [tid, setTid] = useState(temporada.id);
   const [jsT, setJsT] = useState({ tid: temporada.id, js: ctx.jornadas });   // jornadas y de qué temporada son
   const [jid, setJid] = useState(null);
+  const [rt, setRt] = useState(0);   // reintento tras fallo de red
   useEffect(() => { sb.from("temporadas").select("*").order("anio", { ascending: false }).then(({ data }) => data && data.length && setTemps(data)); }, []);
   useEffect(() => {
     let vivo = true;
     if (tid === temporada.id) setJsT({ tid, js: ctx.jornadas });
-    else sb.from("jornadas").select("*").eq("temporada_id", tid).order("fecha").then(({ data, error }) => { if (vivo && !error) setJsT({ tid, js: data || [] }); });
+    else sb.from("jornadas").select("*").eq("temporada_id", tid).order("fecha").then(({ data, error }) => { if (vivo) setJsT({ tid, js: data || [], sinRed: !!error }); });
     return () => { vivo = false; };   // si se cambia de temporada antes de que llegue, se descarta
-  }, [tid, ctx.jornadas]);
+  }, [tid, ctx.jornadas, rt]);
   const listo = jsT.tid === tid;
   const js = listo ? jsT.js : SIN_JORNADAS;
   const T = temps.find((t) => t.id === tid) || temporada;
@@ -86,7 +87,7 @@ function Clasificacion({ ctx }) {
       ${sub === "jornada" && html`<select class="inp" value=${jid || ""} onChange=${(e) => setJid(+e.target.value)}>${[...conPuntos].reverse().map((x) => html`<option key=${x.id} value=${x.id}>${nombreJ(x)} · ${fmtDia(x.fecha)}${x.tipo === "major" ? " · Major" : ""}</option>`)}</select>`}
     </div>
     <${SegCat} cat=${cat} setCat=${setCat}/>
-    ${!listo ? html`<${Spinner}/>` : sub === "jornada" ? (j ? html`<${ClasJornada} key=${j.id + cat} ctx=${ctx} j=${j} cat=${cat}/>` : html`<div class="card"><p class="muted" style=${{ margin: 0 }}>No hay jornadas.</p></div>`)
+    ${!listo ? html`<${Spinner}/>` : jsT.sinRed ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Sin conexión.</p><button class="btn sec" onClick=${() => setRt(rt + 1)}>Reintentar</button></div>` : sub === "jornada" ? (j ? html`<${ClasJornada} key=${j.id + cat} ctx=${ctx} j=${j} cat=${cat}/>` : html`<div class="card"><p class="muted" style=${{ margin: 0 }}>No hay jornadas.</p></div>`)
       : html`<${Ranking} key=${tid + cat} ctx=${ctx} temporada=${T} jornadas=${conPuntos} cat=${cat}/>`}
   </div>`;
 }
@@ -161,8 +162,10 @@ function Directo({ ctx, j, cat }) {
 function TarjetaJugador({ ctx, p }) {
   const [jid, uid, cat] = p.split("|");
   const [d, setD] = useState(null);
-  useEffect(() => { let t = null, vivo = true; const cargar = async () => {
-    const { data: j } = await sb.from("jornadas").select("*").eq("id", +jid).single();
+  const [sinRed, setSinRed] = useState(false);
+  useEffect(() => { let t = null, vivo = true, re = null; const cargar = async () => { try {
+    const { data: j, error: ej } = await sb.from("jornadas").select("*").eq("id", +jid).single();
+    if (!j) throw ej || new Error("sin datos");
     const [{ data: ins }, { data: rs }, hoyos] = await Promise.all([
       sb.rpc("inscritos", { p_jornada: +jid }),
       sb.from("resultados").select("*").eq("jornada_id", +jid).eq("categoria", cat),
@@ -179,8 +182,10 @@ function TarjetaJugador({ ctx, p }) {
     setD({ j, x: x ? { ...x, ...est, ini: "Golpes" } : null, r: r ? { ...r, pt: puestoJ(rs, r) } : undefined, golpes, hoyos });
     // jornada en juego: se actualiza sola cada 30 s, como el directo
     if (!j.cerrada && !t) t = setInterval(() => !document.hidden && cargar(), 30000);
-  }; cargar(); return () => { vivo = false; t && clearInterval(t); }; }, [p]);
-  if (!d) return html`<${Spinner}/>`;
+    setSinRed(false);
+  } catch (e) { if (vivo) { setSinRed(true); clearTimeout(re); re = setTimeout(cargar, 8000); } } };   // sin red: reintenta, sin rueda infinita
+  cargar(); return () => { vivo = false; t && clearInterval(t); clearTimeout(re); }; }, [p]);
+  if (!d) return sinRed ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Sin conexión. Reintentando…</p></div>` : html`<${Spinner}/>`;
   const { j, x, r, golpes, hoyos } = d;
   const nombre = (x && x.nombre_corto) || (r && r.nombre) || "";
   const o = x ? golpes[x.inscripcion_id] || {} : {};

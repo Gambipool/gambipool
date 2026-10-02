@@ -34,6 +34,10 @@ function inicialesUnicas(nombres) {
 const COLA = "gp_cola_golpes";
 const leerCola = () => { try { return JSON.parse(localStorage.getItem(COLA) || "[]"); } catch (e) { return []; } };
 const guardarCola = (c) => { try { localStorage.setItem(COLA, JSON.stringify(c)); } catch (e) { /* sin almacenamiento */ } };
+// Golpes que el servidor rechazó (p. ej. otro tomó el relevo mientras no había señal): se guardan para avisar, no se borran
+const RECH = "gp_golpes_rechazados";
+const leerRech = () => { try { return JSON.parse(localStorage.getItem(RECH) || "[]"); } catch (e) { return []; } };
+const guardarRech = (c) => { try { localStorage.setItem(RECH, JSON.stringify(c)); } catch (e) { /* sin almacenamiento */ } };
 // Solo se descarta un golpe si el servidor lo rechaza por una regla (tarjeta validada, jornada cerrada…).
 // Cualquier otro fallo (sin señal, sesión caducada, servidor caído) lo deja en la cola para reintentar.
 const esRechazo = (e) => !!e && typeof e.code === "string" && (e.code === "P0001" || e.code.startsWith("23") || e.code.startsWith("22"));
@@ -50,7 +54,7 @@ function enviarCola() {
         try { ({ error } = await sb.rpc(x.t === "g" ? "anotar_golpe" : "retirar_jugador", x.t === "g" ? { p_inscripcion: x.i, p_hoyo: x.h, p_golpes: x.g } : { p_inscripcion: x.i, p_retirado: x.r })); }
         catch (e) { error = e; }
         if (error && !esRechazo(error)) break;          // sin señal o fallo puntual: se queda en la cola
-        if (error) errores.push(errTxt(error));         // rechazado por una regla: se descarta
+        if (error) { errores.push(errTxt(error)); guardarRech([...leerRech(), { ...x, msg: errTxt(error) }]); }   // rechazado por una regla: aparte, para avisar
         c = leerCola().slice(1); guardarCola(c);
       }
     } finally { window.dispatchEvent(new Event("gp-cola")); }
@@ -114,7 +118,8 @@ function Tarjeta({ ctx, pid, comite }) {
   const [modal, setModal] = useState(null);
   const [err, setErr] = useState("");
   const [cola, setCola] = useState(leerCola().length);
-  const [sinSenal, setSinSenal] = useState(false);   // solo true si un envío ha fallado de verdad
+  const [sinSenal, setSinSenal] = useState(() => leerCola().length > 0 && !navigator.onLine);   // true si un envío ha fallado de verdad (o se abre sin red con golpes pendientes)
+  const [rech, setRech] = useState(leerRech);
 
   const version = React.useRef(0);
   const iniciada = React.useRef(false);             // ya se colocó el hoyo inicial
@@ -141,7 +146,7 @@ function Tarjeta({ ctx, pid, comite }) {
       await cargar(true);
     })();
     const t = setInterval(async () => { if (document.hidden) return; const r = await enviarCola(); setCola(r.pendientes); setSinSenal(r.pendientes > 0); if (r.errores.length) setErr(r.errores[0]); cargar(false); }, 20000);
-    const upd = () => setCola(leerCola().length);
+    const upd = () => { setCola(leerCola().length); setRech(leerRech()); };
     window.addEventListener("gp-cola", upd);
     return () => { clearInterval(t); window.removeEventListener("gp-cola", upd); };
   }, [pid]);
@@ -177,6 +182,13 @@ function Tarjeta({ ctx, pid, comite }) {
     setModal(sig ? { teclado: sig } : null);
   };
   const retirar = (x, r) => { version.current++; setD({ ...d, jug: jug.map((y) => (y.inscripcion_id === x.inscripcion_id ? { ...y, retirado: r } : y)) }); encolar({ t: "r", i: x.inscripcion_id, r }); setModal(null); };
+  const misIds = jug.map((x) => x.inscripcion_id);
+  const misRech = rech.filter((r) => misIds.includes(r.i));
+  const nomIns = (i) => (jug.find((x) => x.inscripcion_id === i) || {}).nombre_corto || "";
+  const quitarMisRech = () => { const resto = leerRech().filter((r) => !misIds.includes(r.i)); guardarRech(resto); setRech(resto); };
+  const descartar = () => { if (!confirm("¿Descartar estos cambios? No se guardarán.")) return; quitarMisRech(); };
+  const reanotar = () => { const c = leerCola(); misRech.forEach(({ msg, ...x }) => c.push(x)); guardarCola(c); quitarMisRech(); setCola(c.length); version.current++;
+    enviarCola().then((r) => { setCola(r.pendientes); setSinSenal(r.pendientes > 0); if (r.errores.length) setErr(r.errores[0]); cargar(false); }); };
   const irDirecto = () => { recordar("sub", "jornada"); ctx.setTab("clasificacion"); window.scrollTo(0, 0); };
   const relevo = async () => { const { error } = await sb.rpc("tomar_relevo", { p_partida: p.id }); setModal(null); if (error) return setErr(errTxt(error)); setMarcador(yo.id); };
   const validar = async () => {
@@ -190,6 +202,10 @@ function Tarjeta({ ctx, pid, comite }) {
     <div class="tira">${orden.map((h, k) => html`<button key=${h} class=${k === idx && vista === "hoyo" ? "on" : completo(h) ? "ok" : ""} onClick=${() => { setIdx(k); setVista("hoyo"); }}>${h}</button>`)}</div></div>`;
   const avisos = html`${cola > 0 && sinSenal && html`<div class="offl">Sin cobertura · ${cola} ${cola === 1 ? "golpe guardado" : "golpes guardados"} en el móvil. Se envían solos al recuperar señal.</div>`}
     ${err && html`<div class="err" style=${{ margin: "10px 12px 0" }}>${err}</div>`}
+    ${misRech.length > 0 && html`<div class="rech"><b>No se ${misRech.length === 1 ? "ha" : "han"} podido guardar ${misRech.length} ${misRech.length === 1 ? "cambio" : "cambios"}</b>
+      ${misRech.map((r, k) => html`<div key=${k}>${r.t === "g" ? `Hoyo ${r.h} · ${nomIns(r.i)}: ${r.g == null ? "borrar" : r.g}` : `${nomIns(r.i)}: ${r.r ? "retirado" : "quitar retirado"}`}</div>`)}
+      <small>${misRech[0].msg}</small>
+      <div class="btns">${puedeEditar && html`<button class="btn small" onClick=${reanotar}>Volver a anotarlos</button>`}<button class="btn sec small" onClick=${descartar}>Descartar</button></div></div>`}
     ${validada && html`<div class="aviso">Tarjeta validada${comite ? "" : ". Si hay un error, avisad al comité"}.</div>`}
     ${!validada && !j.cerrada && !comite && !soyMarcador && html`<div class="aviso">${nomMarc ? html`Anota <b>${nomMarc}</b>. Tú solo ves la tarjeta.` : "Todavía no anota nadie."}</div>`}`;
 
@@ -317,6 +333,7 @@ function ComiteTarjetas({ ctx, id }) {
   const listoJug = (x) => x.retirado || x.bruto_manual != null || (n[x.id] || 0) >= 18;
   const faltan = est.filter((x) => !listoJug(x)).length;
   const sinPartida = est.filter((x) => !x.partida_id).length;
+  const sinValidar = parts.filter((p) => est.some((x) => x.partida_id === p.id) && !p.validada_at);   // con jugadores y sin validar
   const cerrar = async () => { setErr(""); if (!confirm(`¿Cerrar la ${nombreJ(j)}? Se calculan los puntos y se publican los resultados.`)) return; const { error } = await sb.rpc("cerrar_jornada", { p_jornada: id }); if (error) return setErr(errTxt(error)); setOk("Jornada cerrada. Resultados publicados."); recargar(); cargar(); };
   const reabrir = async () => { setErr(""); if (!confirm("¿Reabrir la jornada? Se borran sus puntos hasta que se vuelva a cerrar.")) return; const { error } = await sb.rpc("reabrir_jornada", { p_jornada: id }); if (error) return setErr(errTxt(error)); setOk(""); recargar(); cargar(); };
   return html`<div>
@@ -327,7 +344,8 @@ function ComiteTarjetas({ ctx, id }) {
     <div class="card"><h3>Cerrar la jornada</h3>
       ${j.cerrada ? html`<p class="muted" style=${{ margin: 0 }}>Cerrada: los resultados y los puntos están publicados.</p><button class="btn sec" onClick=${reabrir}>Reabrir jornada</button>`
         : html`<p class="muted" style=${{ margin: 0 }}>Calcula los puntos y publica el resultado. ${sinPartida ? `Hay ${sinPartida} inscrito(s) sin partida. ` : ""}</p>
-          <button class="btn" disabled=${faltan > 0} onClick=${cerrar}>${faltan > 0 ? `Cerrar jornada (faltan ${faltan} ${faltan === 1 ? "jugador" : "jugadores"})` : "Cerrar jornada"}</button>`}</div>
+          ${faltan === 0 && sinValidar.length > 0 && html`<p class="muted" style=${{ margin: "6px 0 0" }}>Falta validar: ${sinValidar.map((p) => "partida " + p.numero).join(", ")}. Ábrela y pulsa «Validar tarjeta».</p>`}
+          <button class="btn" disabled=${faltan > 0 || sinValidar.length > 0} onClick=${cerrar}>${faltan > 0 ? `Cerrar jornada (faltan ${faltan} ${faltan === 1 ? "jugador" : "jugadores"})` : sinValidar.length > 0 ? `Cerrar jornada (faltan ${sinValidar.length} ${sinValidar.length === 1 ? "tarjeta" : "tarjetas"} por validar)` : "Cerrar jornada"}</button>`}</div>
   </div>`;
 }
 

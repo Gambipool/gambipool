@@ -14,10 +14,10 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="preload" as="font" type="font/woff2" href="fonts/source-sans-3-latin-400-normal.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="fonts/lora-latin-700-normal.woff2" crossorigin>
 <link rel="preload" as="image" href="casaclub.jpg">
-<link rel="stylesheet" href="styles.css?v=29">
+<link rel="stylesheet" href="styles.css?v=30">
 </head>
 <body>
 <div id="splash"><div class="bv-f"></div><div class="bv-foto"></div><div class="bv-g"></div>
@@ -25,6 +25,16 @@
 <script>
 /* La bienvenida cuenta su tiempo desde que la foto está pintada (no desde que se abre la app) */
 (function () {
+  // El día de la jornada (o con golpes pendientes) no hay bienvenida: directo a la app
+  var saltar = false;
+  try {
+    if (JSON.parse(localStorage.getItem("gp_cola_golpes") || "[]").length) saltar = true;
+    var hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
+    (JSON.parse(localStorage.getItem("gp_c1_jornadas") || "[]") || []).forEach(function (j) {
+      if (j && !j.cerrada && j.estado !== "suspendida" && j.fecha <= hoy && (j.fecha_fin || j.fecha) >= hoy) saltar = true;
+    });
+  } catch (e) { /* sin almacenamiento: bienvenida normal */ }
+  if (saltar) { var sp = document.getElementById("splash"); if (sp) sp.remove(); window.__bv = Promise.resolve(false); return; }
   window.__bv = new Promise(function (ok) {
     var img = new Image(), hecho = false;
     function fin(v) { if (!hecho) { hecho = true; ok(v); } }
@@ -44,10 +54,10 @@
 <script src="vendor/react-dom.production.min.js"></script>
 <script src="vendor/htm.umd.js"></script>
 <script src="vendor/supabase.js"></script>
-<script src="app.js?v=29"></script>
-<script src="tarjeta.js?v=29"></script>
-<script src="clasif.js?v=29"></script>
-<script src="lapool.js?v=29"></script>
-<script src="jornadas.js?v=29"></script>
+<script src="app.js?v=30"></script>
+<script src="tarjeta.js?v=30"></script>
+<script src="clasif.js?v=30"></script>
+<script src="lapool.js?v=30"></script>
+<script src="jornadas.js?v=30"></script>
 </body>
 </html>

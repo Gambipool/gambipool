@@ -189,6 +189,9 @@ function avisosHorario(parts, nIns) {
     (p.t10 || []).forEach((h) => { c10[h] = (c10[h] || 0) + 1; if (toMin(h) > 550) out.push(`La partida ${p.numero} tiene ${hmBonito(h)} por el tee 10 (después de las 9:10).`); });
   });
   Object.entries(c1).forEach(([h, n]) => n > 2 && out.push(`${n} partidas intentan ${hmBonito(h)} por el tee 1 (máximo 2).`));
+  // Dos partidas con exactamente las mismas horas por el tee 1: una de ellas se ha quedado sin horas propias
+  const vistas = {};
+  parts.forEach((p) => { const k = (p.t1 || []).join(); if (!k || !(nIns[p.id] || 0)) return; if (vistas[k]) out.push(`Las partidas ${vistas[k]} y ${p.numero} intentan las mismas horas por el tee 1. Pulsa «Recalcular horas según las reglas».`); else vistas[k] = p.numero; });
   return out;
 }
 
@@ -609,10 +612,16 @@ function GestionJornada({ ctx, id }) {
   const pend = horasDescuadradas(parts, ins, j);
   const guardarHoras = async (lista) => { for (const p of lista) chk(await sb.from("partidas").update({ t1: p.t1, t10: p.t10 }).eq("id", p.id)); };
   // Tras cambiar quién juega en cada partida: sin publicar se recalcula solo; publicado, se avisa al comité
-  // Solo se tocan las partidas afectadas: los retoques a mano en las demás se respetan
+  // Se recalculan las franjas afectadas (antes y después del cambio) y la siguiente, porque las horas de una
+  // partida dependen de las demás de su franja. Las otras franjas conservan sus retoques a mano.
   const tras = async (ids) => {
     const nd = await cargarJornada(id, yo);
-    if (!nd.j.horario_publicado) await guardarHoras(horasEsperadas(nd.parts, nd.ins, nd.j).filter((p) => ids.includes(p.id)));
+    if (nd.j.horario_publicado) return;
+    const fr = new Set();
+    const marca = (pp, ii) => ids.forEach((pid) => { const p = pp.find((x) => x.id === pid); if (p) { const f = franjaPartida(p, ii.filter((x) => x.partida_id === pid)); if (f) fr.add(f); } });
+    marca(parts, ins); marca(nd.parts, nd.ins);
+    [...fr].forEach((f) => { const k = FRANJAS.indexOf(f); if (k >= 0 && FRANJAS[k + 1]) fr.add(FRANJAS[k + 1]); });
+    await guardarHoras(horasEsperadas(nd.parts, nd.ins, nd.j).filter((p) => fr.has(p.franja)));
   };
   const mover = (x, pid) => run(async () => {
     chk(await sb.from("inscripciones").update({ partida_id: pid ? +pid : null }).eq("id", x.inscripcion_id)); await tras([x.partida_id, pid ? +pid : null]);

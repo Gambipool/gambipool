@@ -571,14 +571,18 @@ function App() {
     const rs = () => { if (vv.height > h0 + 80) recolocar(); h0 = vv.height; };
     if (vv) vv.addEventListener("resize", rs);
     let ro = null, mo = null;
-    const medir = () => { const n = document.querySelector(".nav"); if (n) document.documentElement.style.setProperty("--navh", n.offsetHeight + "px"); };
-    if (window.ResizeObserver) { ro = new ResizeObserver(medir); mo = new MutationObserver(() => { const n = document.querySelector(".nav"); if (n) { ro.disconnect(); ro.observe(n); medir(); } }); mo.observe(document.getElementById("root"), { childList: true }); }
+    // Altura real del menú inferior (hueco final) y de la cabecera (para que las pestañas se queden fijas debajo)
+    const medir = () => { const n = document.querySelector("#root > .nav"), h = document.querySelector("#root > .hd"), st = document.documentElement.style;
+      if (n) st.setProperty("--navh", n.offsetHeight + "px"); if (h) st.setProperty("--hdh", h.offsetHeight + "px"); };
+    if (window.ResizeObserver) { ro = new ResizeObserver(medir); mo = new MutationObserver(() => { ro.disconnect(); ["#root > .nav", "#root > .hd"].forEach((q) => { const e = document.querySelector(q); if (e) ro.observe(e); }); medir(); }); mo.observe(document.getElementById("root"), { childList: true }); }
     return () => { document.removeEventListener("focusout", fuera); if (vv) vv.removeEventListener("resize", rs); ro && ro.disconnect(); mo && mo.disconnect(); };
   }, []);
 
   // Golpes pendientes: se envían al abrir la app y al volver a ella
   useEffect(() => {
-    const f = () => { if (!document.hidden) enviarCola(); };
+    // Al volver a la app: se envían los golpes pendientes y se refresca el calendario (por si el comité cerró la jornada)
+    let ult = Date.now();
+    const f = () => { if (document.hidden) return; enviarCola(); if (Date.now() - ult > 30000) { ult = Date.now(); recargaRef.current && recargaRef.current(); } };
     document.addEventListener("visibilitychange", f);
     return () => document.removeEventListener("visibilitychange", f);
   }, []);
