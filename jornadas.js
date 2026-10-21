@@ -393,7 +393,7 @@ function ListaInscritos({ ins, j, yoId }) {
   const orden = Object.keys(grupos).sort((a, b) => toMin((grupos[a][0].franja || "00:00")) - toMin((grupos[b][0].franja || "00:00")));
   return html`<div>${orden.map((k) => html`<div key=${k}><div class="fh"><span>${k}</span><span>${grupos[k].length}</span></div>
     <div class="card" style=${{ marginTop: "6px", padding: "4px 12px" }}>${grupos[k].map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yoId ? " me" : "")}>
-      <span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">HJ ${x.hcp_juego ?? "—"}</span></div>`)}</div></div>`)}</div>`;
+      <span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}</div></div>`)}</div>`;
 }
 
 /* ---------- Inicio ---------- */
@@ -418,7 +418,7 @@ function Inicio2({ ctx }) {
     if (e.k === "hoy") tarjeta = html`<div class="card"><span class="tag">Hoy se juega</span>${titulo}
       ${miP && miP.salida_hora ? html`<div class="kv"><span>Tu salida</span><b>${hmBonito(hm(miP.salida_hora))} · Tee ${miP.salida_tee}</b></div>` : null}
       ${miP && html`<div class="kv"><span>Marcador</span><b>${miP.marcador_id ? ((ins.find((x) => x.jugador_id === miP.marcador_id) || {}).nombre_corto || "Comité") : "Aún nadie"}</b></div>`}
-      ${miP && comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">HJ ${x.hcp_juego ?? "—"}</span></div>`)}
+      ${miP && comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}
       ${miP && !miP.marcador_id && html`<p class="muted" style=${{ margin: "8px 0 0" }}>El primero de la partida que abra la tarjeta será el marcador.</p>`}
       ${miP && html`<button class="btn" onClick=${() => ctx.setTab("tarjeta")}>Abrir tarjeta</button>`}
       <button class="btn sec" onClick=${() => ctx.setTab("clasificacion")}>Ver el directo</button></div>`;
@@ -437,12 +437,12 @@ function Inicio2({ ctx }) {
     else if (!miP.salida_hora) tarjeta = html`<div class="card"><span class="tag">Horario publicado</span>${titulo}
       <p class="muted" style=${{ margin: "4px 0" }}>Partida ${miP.numero}. ${jj.tipo === "fuera" ? "" : `El ${fmtPlazo(jj.reserva)}, intentad reservar en la web del club:`}</p>
       ${jj.tipo !== "fuera" && html`<div class="slots num"><div class="slot"><small>Tee 1</small><b>${miP.t1.map(hmBonito).join(" · ") || "—"}</b></div><div class="slot"><small>Tee 10</small><b>${miP.t10.map(hmBonito).join(" · ") || "—"}</b></div></div>`}
-      <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">HJ ${x.hcp_juego ?? "—"}</span></div>`)}</div>
+      <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}</div>
       <button class="btn" onClick=${() => setModal({ salida: miP })}>Apuntar salida conseguida</button>
       <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las partidas</button></div>`;
     else tarjeta = html`<div class="card"><span class="tag gold">Salida confirmada</span>${titulo}
       <div class="kv"><span>Salida</span><b class="num">${hmBonito(hm(miP.salida_hora))} · Tee ${miP.salida_tee}</b></div>
-      <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">HJ ${x.hcp_juego ?? "—"}</span></div>`)}</div>
+      <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}</div>
       <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las salidas</button>
       <button class="btn warn sec" onClick=${() => setModal("baja")}>Darme de baja</button></div>`;
   }
