@@ -263,6 +263,33 @@ function ModalBaja({ j, cerrar, hecho }) {
   </div></div>`;
 }
 
+/* ---------- Cambiar el hándicap de una inscripción (jugador hasta el día anterior; comité hasta cerrar) ---------- */
+function ModalHcp({ j, nombre, actual, barras, rpc, args, cerrar, hecho }) {
+  const [hcp, setHcp] = useState(numES(actual).replace("—", ""));
+  const [err, setErr] = useState(""); const [env, setEnv] = useState(false);
+  const hi = parseHcp(hcp), hj = hi != null && !isNaN(hi) ? hcpJuego(j, hi, barras) : null;
+  const guardar = async () => {
+    setErr("");
+    if (hi == null || isNaN(hi) || hi < -10 || hi > 54) return setErr("Escribe el hándicap exacto (por ejemplo 2,7).");
+    setEnv(true); const { error } = await sb.rpc(rpc, { ...args, p_hcp: hi }); setEnv(false);
+    if (error) return setErr(errTxt(error));
+    hecho();
+  };
+  return html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && cerrar()}><div class="sheet">
+    <h3>Cambiar hándicap</h3><p class="muted">${nombre ? nombre + " · " : ""}${nombreJ(j)} · ${fechaJ(j)}. Se mantiene la franja y la partida.</p>
+    <label class="l">Hándicap exacto</label>
+    <div style=${{ display: "flex", gap: "10px", alignItems: "center" }}>
+      <input class="inp num" style=${{ flex: "0 0 110px" }} inputmode="decimal" value=${hcp} onInput=${(e) => setHcp(e.target.value)} />
+      <a href="https://rfegolf.es/aprende-mejora/consulta-handicap" target="_blank" rel="noopener" style=${{ color: "var(--hd)", fontWeight: 700, fontSize: "14px" }}>Consulta el hándicap</a>
+    </div>
+    <p class="muted">${hj != null ? html`Hándicap de juego en ${j.barras}: <b>${hj}</b>` : ""}</p>
+    ${err && html`<div class="err">${err}</div>`}
+    <button class="btn" disabled=${env} onClick=${guardar}>Guardar</button><button class="btn sec" onClick=${cerrar}>Cancelar</button>
+  </div></div>`;
+}
+// El jugador puede cambiar su hándicap con la inscripción cerrada hasta el día anterior (antes, con «Modificar»)
+const puedeCambiarHcp = (j, mia) => !!mia && !j.cerrada && estadoJ(j).k === "cerrada";
+
 /* ---------- Pantalla de inscripción ---------- */
 function Inscribir({ ctx, id }) {
   const { yo, barras, atras } = ctx;
@@ -359,13 +386,14 @@ function FichaJornada({ ctx, id }) {
         <div class="kv"><span>Bola</span><b>${j.bola_colocada ? "Se coloca" : "No se coloca"}</b></div>
         <div class="kv"><span>Tipo</span><b>${TIPOS[j.tipo]} · ${j.doblar ? "puntos dobles" : "puntos normales"}</b></div>
         <div class="kv"><span>Inscritos</span><b class="num">${ins.length}</b></div>
-        ${mia && html`<div class="kv"><span>Tu inscripción</span><b>${mia.franja ? (mia.otra_hora ? "Otra hora " : "Franja ") + hmBonito(hm(mia.franja)) : "Inscrito"} · HJ ${mia.hcp_juego ?? "—"}</b></div>`}
+        ${mia && html`<div class="kv"><span>Tu inscripción</span><b>${mia.franja ? (mia.otra_hora ? "Otra hora " : "Franja ") + hmBonito(hm(mia.franja)) : "Inscrito"} · Hcp ${numES(mia.hcp_exacto)} · HJ ${mia.hcp_juego ?? "—"}</b></div>`}
         ${j.nota && html`<p class="muted">${j.nota}</p>`}
         ${e.k === "susp" && j.motivo && html`<div class="err">Suspendida: ${j.motivo}</div>`}
       </div>
       <${Plazos} j=${j}/>
       <div style=${{ margin: "0 12px 20px" }}>
         ${puedeIns && html`<button class="btn" onClick=${() => go("inscribir", j.id)}>${mia ? "Modificar inscripción" : "Inscribirme"}</button>`}
+        ${puedeCambiarHcp(j, mia) && html`<button class="btn sec" onClick=${() => setModal("hcp")}>Cambiar hándicap</button>`}
         ${puedeBaja && html`<button class="btn warn sec" onClick=${() => setModal("baja")}>Darme de baja</button>`}
         ${e.k === "cerrada" && !mia && html`<p class="muted">Inscripción cerrada. Solo es posible entrar si hay hueco en una partida de 3 en el sistema de reservas del club: gestiónalo tú y avisa al comité.</p>`}
         ${yo.es_admin && html`<button class="btn sec" onClick=${() => go("gestion", j.id)}>Gestionar (comité)</button>`}
@@ -382,6 +410,7 @@ function FichaJornada({ ctx, id }) {
       </div>`}
     </div>`}
     ${modal === "baja" && html`<${ModalBaja} j=${j} cerrar=${() => setModal(null)} hecho=${(r) => { setModal(null); setMsg(r === "amarilla" ? "Baja registrada con tarjeta amarilla." : "Baja registrada, sin sanción."); cargar(); }}/>`}
+    ${modal === "hcp" && html`<${ModalHcp} j=${j} actual=${mia.hcp_exacto} barras=${ctx.barras} rpc="cambiar_mi_hcp" args=${{ p_jornada: j.id }} cerrar=${() => setModal(null)} hecho=${() => { setModal(null); setMsg("Hándicap cambiado."); cacheBorrar("jor_"); cargar(); }}/>`}
     ${modal && modal.salida && html`<${ModalSalida} p=${modal.salida} cerrar=${() => setModal(null)} hecho=${() => { setModal(null); cargar(); }}/>`}
   </div>`;
 }
@@ -433,23 +462,27 @@ function Inicio2({ ctx }) {
       <div class="kv"><span>Horario</span><b>${jj.horario_publicado ? "Publicado (sin partida asignada)" : fmtPlazo(jj.horario_at)}</b></div>
       <div class="kv"><span>Baja sin sanción hasta</span><b>${fmtPlazo(jj.baja_hasta)}</b></div>
       <div class="btns">${e.k === "abierta" && html`<button class="btn sec" onClick=${() => go("inscribir", jj.id)}>Modificar</button>`}${verIns}</div>
+      ${puedeCambiarHcp(jj, mia) && html`<button class="btn sec" onClick=${() => setModal("hcp")}>Cambiar hándicap</button>`}
       <button class="btn warn sec" onClick=${() => setModal("baja")}>Darme de baja</button></div>`;
     else if (!miP.salida_hora) tarjeta = html`<div class="card"><span class="tag">Horario publicado</span>${titulo}
       <p class="muted" style=${{ margin: "4px 0" }}>Partida ${miP.numero}. ${jj.tipo === "fuera" ? "" : `El ${fmtPlazo(jj.reserva)}, intentad reservar en la web del club:`}</p>
       ${jj.tipo !== "fuera" && html`<div class="slots num"><div class="slot"><small>Tee 1</small><b>${miP.t1.map(hmBonito).join(" · ") || "—"}</b></div><div class="slot"><small>Tee 10</small><b>${miP.t10.map(hmBonito).join(" · ") || "—"}</b></div></div>`}
       <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}</div>
       <button class="btn" onClick=${() => setModal({ salida: miP })}>Apuntar salida conseguida</button>
-      <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las partidas</button></div>`;
+      <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las partidas</button>
+      ${puedeCambiarHcp(jj, mia) && html`<button class="btn sec" onClick=${() => setModal("hcp")}>Cambiar hándicap</button>`}</div>`;
     else tarjeta = html`<div class="card"><span class="tag gold">Salida confirmada</span>${titulo}
       <div class="kv"><span>Salida</span><b class="num">${hmBonito(hm(miP.salida_hora))} · Tee ${miP.salida_tee}</b></div>
       <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}</div>
       <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las salidas</button>
+      ${puedeCambiarHcp(jj, mia) && html`<button class="btn sec" onClick=${() => setModal("hcp")}>Cambiar hándicap</button>`}
       <button class="btn warn sec" onClick=${() => setModal("baja")}>Darme de baja</button></div>`;
   }
   const verResultado = !(j && d && estadoJ(d.j).k === "hoy");
   return html`<div>${verResultado && html`<${TuResultado} ctx=${ctx}/>`}${tarjeta}
     ${avisos.length > 0 && html`<div class="card"><h3>Avisos</h3>${avisos.map((a) => html`<div key=${a.id} class="hist"><span>${a.texto}</span><span class="muted" style=${{ whiteSpace: "nowrap" }}>${fmtAviso(a.creado)}</span></div>`)}</div>`}
     ${modal === "baja" && d && html`<${ModalBaja} j=${d.j} cerrar=${() => setModal(null)} hecho=${() => { setModal(null); cargar(); }}/>`}
+    ${modal === "hcp" && d && d.mia && html`<${ModalHcp} j=${d.j} actual=${d.mia.hcp_exacto} barras=${ctx.barras} rpc="cambiar_mi_hcp" args=${{ p_jornada: d.j.id }} cerrar=${() => setModal(null)} hecho=${() => { setModal(null); cargar(); }}/>`}
     ${modal && modal.salida && html`<${ModalSalida} p=${modal.salida} cerrar=${() => setModal(null)} hecho=${() => { setModal(null); cargar(); }}/>`}
   </div>`;
 }
@@ -585,6 +618,7 @@ function GestionJornada({ ctx, id }) {
   const [err, setErr] = useState(""); const [trabajando, setTrabajando] = useState(false);
   const [alta, setAlta] = useState({ jugador: "", franja: "08:30", hcp: "" });
   const [avisoWa, setAvisoWa] = useState(false);
+  const [hcpDe, setHcpDe] = useState(null);   // inscrito al que el comité cambia el hándicap
   const cargar = useCallback(() => cargarJornada(id, yo).then(setD), [id]);
   useEffect(() => { cargar(); sb.from("jugadores").select("id, nombre_corto, ultimo_hcp, jugador_temporada(temporada_id, estado)").order("nombre_corto").then(({ data }) => setTodos((data || []).filter((x) => (x.jugador_temporada || []).some((t) => t.temporada_id === temporada.id && t.estado === "activo")))); }, [cargar]);
   if (!d) return html`<${Spinner}/>`;
@@ -699,7 +733,8 @@ function GestionJornada({ ctx, id }) {
         <button class="btn" disabled=${trabajando} onClick=${inscribir}>Inscribir</button></div>
       <div class="list">${ins.map((x) => html`<div class="row" key=${x.jugador_id}><span class="av">${iniciales(x.nombre_corto)}</span>
         <span class="n">${x.nombre_corto}<small>${x.franja ? (x.otra_hora ? "Otra hora " : "Franja ") + hmBonito(hm(x.franja)) + " · " : ""}Hcp ${numES(x.hcp_exacto)} · HJ ${x.hcp_juego ?? "—"}</small></span>
-        <button class="link" onClick=${() => quitar(x)}>Quitar</button></div>`)}</div>
+        ${!j.cerrada && html`<button class="link" style=${{ marginRight: "14px" }} onClick=${() => setHcpDe(x)}>Hcp</button>`}<button class="link" onClick=${() => quitar(x)}>Quitar</button></div>`)}</div>
+      ${hcpDe && html`<${ModalHcp} j=${j} nombre=${hcpDe.nombre_corto} actual=${hcpDe.hcp_exacto} barras=${barras} rpc="cambiar_hcp_inscrito" args=${{ p_inscripcion: hcpDe.inscripcion_id }} cerrar=${() => setHcpDe(null)} hecho=${() => { setHcpDe(null); cargar(); }}/>`}
     </div>`}
   </div>`;
 }
