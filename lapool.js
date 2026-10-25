@@ -22,18 +22,50 @@ function Pool({ yo, go }) {
 }
 
 /* ---------- Mi perfil ---------- */
-function Perfil({ yo, temporada }) {
+function Perfil({ yo, temporada, jornadas, recargarYo }) {
   const [am, setAm] = useState(null);
+  const [edit, setEdit] = useState(null);      // {movil, hcp} mientras se edita
+  const [ofrecer, setOfrecer] = useState(null); // {ins, j, hcp}: aplicar también a una inscripción
+  const [err, setErr] = useState(""); const [msg, setMsg] = useState(""); const [env, setEnv] = useState(false);
   useEffect(() => { temporada && sb.from("amarillas").select("*").eq("jugador_id", yo.id).eq("temporada_id", temporada.id).order("creada").then(({ data }) => setAm(data || [])); }, []);
   const vivas = (am || []).filter((a) => !a.anulada);
+  const guardar = async () => {
+    setErr(""); setMsg("");
+    const hi = edit.hcp.trim() === "" ? null : parseHcp(edit.hcp);
+    if (hi != null && (isNaN(hi) || hi < -10 || hi > 54)) return setErr("Escribe el hándicap exacto (por ejemplo 2,7).");
+    setEnv(true);
+    const { error } = await sb.rpc("actualizar_mi_perfil", { p_movil: edit.movil.trim(), p_hcp: hi });
+    if (error) { setEnv(false); return setErr(errTxt(error)); }
+    // ¿Tiene una inscripción en una jornada que aún no se ha jugado? (hasta el día anterior)
+    let of = null;
+    if (hi != null) {
+      const hoy = hoyMadrid(), pend = (jornadas || []).filter((j) => !j.cerrada && j.fecha > hoy);
+      if (pend.length) {
+        const { data } = await sb.from("inscripciones").select("id, jornada_id, hcp_exacto, estado").eq("jugador_id", yo.id).eq("estado", "inscrito").in("jornada_id", pend.map((j) => j.id));
+        const i = (data || []).find((x) => +x.hcp_exacto !== hi);
+        if (i) of = { ins: i, j: pend.find((j) => j.id === i.jornada_id), hcp: hi };
+      }
+    }
+    setEnv(false); setEdit(null); recargarYo && recargarYo();
+    if (of) setOfrecer(of); else setMsg("Perfil actualizado.");
+  };
+  const aplicar = async () => {
+    setErr(""); setEnv(true);
+    const { error } = await sb.rpc("cambiar_mi_hcp", { p_jornada: ofrecer.j.id, p_hcp: ofrecer.hcp }); setEnv(false);
+    if (error) { setOfrecer(null); return setErr(errTxt(error)); }
+    cacheBorrar("jor_"); setOfrecer(null); setMsg(`Perfil actualizado y hándicap cambiado en tu inscripción de la ${etiquetaJ(ofrecer.j)}.`);
+  };
   return html`<div>
+    ${msg && html`<div class="ok" style=${{ margin: "12px" }}>${msg}</div>`}
     <div class="card"><h3>${yo.nombre}</h3>
       <div class="kv"><span>Nombre corto</span><b>${yo.nombre_corto}</b></div>
       <div class="kv"><span>Email</span><b>${yo.email}</b></div>
       <div class="kv"><span>Móvil</span><b>${yo.movil || "—"}</b></div>
       <div class="kv"><span>Licencia</span><b>${yo.licencia || "—"}</b></div>
       <div class="kv"><span>Último hándicap</span><b class="num">${numES(yo.ultimo_hcp)}</b></div>
-      <p class="muted" style=${{ marginBottom: "0" }}>Si algún dato no es correcto, díselo al comité.</p>
+      ${err && !edit && html`<div class="err">${err}</div>`}
+      <button class="btn sec" onClick=${() => { setErr(""); setMsg(""); setEdit({ movil: yo.movil || "", hcp: numES(yo.ultimo_hcp).replace("—", "") }); }}>Editar móvil y hándicap</button>
+      <p class="muted" style=${{ marginBottom: "0" }}>Para cambiar el nombre, el email o la licencia, díselo al comité.</p>
     </div>
     <div class="card"><h3>Tarjetas amarillas ${temporada ? temporada.anio : ""}</h3>
       ${am == null ? html`<${Spinner}/>` : !am.length ? html`<p class="muted" style=${{ margin: 0 }}>Ninguna.</p>`
@@ -41,6 +73,24 @@ function Perfil({ yo, temporada }) {
       ${am && am.length > 0 && html`<div class="kv" style=${{ marginTop: "4px" }}><span>En vigor</span><b class="num">${vivas.length} de 3</b></div>`}
     </div>
     <div style=${{ margin: "0 12px" }}><button class="btn sec" onClick=${() => sb.auth.signOut()}>Cerrar sesión</button></div>
+    ${edit && html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && !env && setEdit(null)}><div class="sheet">
+      <h3>Editar perfil</h3>
+      <label class="l">Móvil</label><input class="inp" type="tel" value=${edit.movil} onInput=${(e) => setEdit({ ...edit, movil: e.target.value })} />
+      <label class="l">Último hándicap (exacto)</label>
+      <div style=${{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <input class="inp num" style=${{ flex: "0 0 110px" }} inputmode="decimal" value=${edit.hcp} onInput=${(e) => setEdit({ ...edit, hcp: e.target.value })} />
+        <a href="https://rfegolf.es/aprende-mejora/consulta-handicap" target="_blank" rel="noopener" style=${{ color: "var(--hd)", fontWeight: 700, fontSize: "14px" }}>Consulta el hándicap</a>
+      </div>
+      <p class="muted">Con este hándicap sale tu próxima inscripción.</p>
+      ${err && html`<div class="err">${err}</div>`}
+      <button class="btn" disabled=${env} onClick=${guardar}>${env ? "Guardando…" : "Guardar"}</button><button class="btn sec" disabled=${env} onClick=${() => setEdit(null)}>Cancelar</button>
+    </div></div>`}
+    ${ofrecer && html`<div class="modal"><div class="sheet">
+      <h3>¿Aplicarlo también a tu inscripción de la ${etiquetaJ(ofrecer.j)}?</h3>
+      <p class="muted">Estás inscrito con hándicap ${numES(ofrecer.ins.hcp_exacto)}. Se cambiaría a ${numES(ofrecer.hcp)}, manteniendo tu franja y tu partida.</p>
+      <button class="btn" disabled=${env} onClick=${aplicar}>${env ? "Guardando…" : "Sí, cambiarlo también"}</button>
+      <button class="btn sec" disabled=${env} onClick=${() => { setOfrecer(null); setMsg("Perfil actualizado."); }}>No, solo el perfil</button>
+    </div></div>`}
   </div>`;
 }
 

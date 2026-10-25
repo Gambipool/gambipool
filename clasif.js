@@ -80,13 +80,24 @@ function Clasificacion({ ctx }) {
   }, [js]);
   const j = conPuntos.find((x) => x.id === jid);
   const cambiaSub = (k) => { setSub(k); recordar("sub", k); };
-  return html`<div>
+  // Cabecera fija: selectores y Scratch/Hándicap bajo las pestañas, y la fila de títulos debajo de ellos
+  const fijoRef = React.useRef(null);
+  useEffect(() => {
+    const el = fijoRef.current; if (!el) return;
+    const tabs = el.previousElementSibling, caja = el.parentElement;
+    const m = () => { caja.style.setProperty("--tabsh", tabs.offsetHeight + "px"); caja.style.setProperty("--fijoh", el.offsetHeight + "px"); };
+    m(); if (!window.ResizeObserver) return;
+    const ro = new ResizeObserver(m); ro.observe(el); ro.observe(tabs); return () => ro.disconnect();
+  }, []);
+  return html`<div class="clas">
     <div class="tabs">${[["jornada", "Jornada"], ["ranking", "Ranking"]].map(([k, l]) => html`<button key=${k} class=${sub === k ? "on" : ""} onClick=${() => cambiaSub(k)}>${l}</button>`)}</div>
+    <div class="clfijo" ref=${fijoRef}>
     <div class="sels">
       <select class="inp" value=${tid} onChange=${(e) => { setTid(+e.target.value); setJid(null); }}>${temps.map((t) => html`<option key=${t.id} value=${t.id}>${t.anio}</option>`)}</select>
       ${sub === "jornada" && html`<select class="inp" value=${jid || ""} onChange=${(e) => setJid(+e.target.value)}>${[...conPuntos].reverse().map((x) => html`<option key=${x.id} value=${x.id}>${nombreJ(x)} · ${fmtDia(x.fecha)}${x.tipo === "major" ? " · Major" : ""}</option>`)}</select>`}
     </div>
     <${SegCat} cat=${cat} setCat=${setCat}/>
+    </div>
     ${!listo ? html`<${Spinner}/>` : jsT.sinRed ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Sin conexión.</p><button class="btn sec" onClick=${() => setRt(rt + 1)}>Reintentar</button></div>` : sub === "jornada" ? (j ? html`<${ClasJornada} key=${j.id + cat} ctx=${ctx} j=${j} cat=${cat}/>` : html`<div class="card"><p class="muted" style=${{ margin: 0 }}>No hay jornadas.</p></div>`)
       : html`<${Ranking} key=${tid + cat} ctx=${ctx} temporada=${T} jornadas=${conPuntos} cat=${cat}/>`}
   </div>`;

@@ -484,6 +484,28 @@ function elegirSaludo(yo, frases) {
   saludoElegido = null;
   if (frases && frases.length) saludoElegido = frases[Math.floor(Math.random() * frases.length)].frase.replace(/\{nombre\}/g, yo.nombre_corto.split(" ")[0]);
 }
+/* ---------- Versión nueva publicada: la app se actualiza sola ----------
+   Al abrir la app y al volver a ella se mira el index.html publicado (sin caché). Si es de una versión
+   posterior, se recarga con una dirección nueva (así el iPhone no usa la copia guardada).
+   Nunca con golpes pendientes de enviar, en la pestaña Tarjeta, con una pantalla abierta ni escribiendo. */
+const VERSION = 33;
+const enUso = { tab: "inicio" };
+async function buscarVersion() {
+  try {
+    if (!navigator.onLine || enUso.tab === "tarjeta" || enUso.tab === "pantalla") return;
+    if (JSON.parse(localStorage.getItem("gp_cola_golpes") || "[]").length) return;
+    const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    const r = await fetch("index.html?nc=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) return;
+    const m = (await r.text()).match(/app\.js\?v=(\d+)/);
+    const nueva = m ? +m[1] : 0;
+    if (nueva <= VERSION) return;
+    // Si ya se intentó recargar a esta versión y no llegó, no se insiste (evita recargas en bucle)
+    try { if (sessionStorage.getItem("gp_recarga") === String(nueva)) return; sessionStorage.setItem("gp_recarga", String(nueva)); } catch (e) { return; }
+    location.replace(location.pathname + "?v=" + nueva);
+  } catch (e) { /* sin red: ya se mirará la próxima vez */ }
+}
+
 function App() {
   const [session, setSession] = useState(undefined);
   // Arranque instantáneo: lo último guardado en el móvil se enseña mientras llega lo nuevo
@@ -581,10 +603,11 @@ function App() {
   // Golpes pendientes: se envían al abrir la app y al volver a ella
   useEffect(() => {
     // Al volver a la app: se envían los golpes pendientes y se refresca el calendario (por si el comité cerró la jornada)
-    let ult = Date.now();
-    const f = () => { if (document.hidden) return; enviarCola(); if (Date.now() - ult > 30000) { ult = Date.now(); recargaRef.current && recargaRef.current(); } };
+    let ult = Date.now(), ultV = Date.now();
+    const t0 = setTimeout(buscarVersion, 3000);   // al abrir la app
+    const f = () => { if (document.hidden) return; enviarCola(); if (Date.now() - ultV > 60000) { ultV = Date.now(); setTimeout(buscarVersion, 1500); } if (Date.now() - ult > 30000) { ult = Date.now(); recargaRef.current && recargaRef.current(); } };
     document.addEventListener("visibilitychange", f);
-    return () => document.removeEventListener("visibilitychange", f);
+    return () => { clearTimeout(t0); document.removeEventListener("visibilitychange", f); };
   }, []);
 
   if (session === undefined) return html`<${Spinner}/>`;
@@ -597,6 +620,7 @@ function App() {
   if (!yo.acepta_privacidad) return html`<${Privacidad} yo=${yo} onOk=${cargarYo}/>`;
 
   recargaRef.current = () => cargarJornadas();
+  enUso.tab = pila.length ? "pantalla" : tab;
   const go = (v, p) => { try { history.pushState({ gp: pila.length + 1 }, ""); } catch (e) { /* nada */ } setPila([...pila, { v, p }]); window.scrollTo(0, 0); };
   // Al volver de una pantalla (donde quizá te inscribiste o diste de baja) no se enseña la jornada guardada
   const atras = () => { if (history.state && history.state.gp) history.back(); else { cacheBorrar("jor_"); setPila(pila.slice(0, -1)); cargarJornadas(); } };
@@ -617,7 +641,7 @@ function App() {
     cab = html`<${Cabecera} sub=${sub} titulo=${T[top.v]} onBack=${atras} />`;
     const volverRecargando = () => atras();
     if (top.v === "directorio") cuerpo = html`<${Directorio}/>`;
-    else if (top.v === "perfil") cuerpo = html`<${Perfil} yo=${yo} temporada=${temporada}/>`;
+    else if (top.v === "perfil") cuerpo = html`<${Perfil} yo=${yo} temporada=${temporada} jornadas=${jornadas} recargarYo=${cargarYo}/>`;
     else if (!temporada) cuerpo = html`<div class="err" style=${{ margin: "12px" }}>No hay temporada activa.</div>`;
     else if (top.v === "jornada") cuerpo = html`<${FichaJornada} key=${top.p} ctx=${ctx} id=${top.p}/>`;
     else if (top.v === "inscribir") cuerpo = html`<${Inscribir} ctx=${ctx} id=${top.p}/>`;

@@ -59,11 +59,11 @@ const parseHcp = (s) => { const v = String(s).trim().replace(",", "."); if (v ==
 
 /* ---------- Horario automático ---------- */
 // Partidas de una franja: el mínimo de partidas posible, con 3 o 4 jugadores (máx. 3 partidas).
-// 6→3+3 · 7→3+4 · 8→4+4 · 9→3+3+3 · 10→3+3+4 · 11→3+4+4 · 12→4+4+4. Las de 3 van primero.
+// 5→3+2 · 6→3+3 · 7→3+4 · 8→4+4 · 9→3+3+3 · 10→3+3+4 · 11→3+4+4 · 12→4+4+4. Las de 3 van primero.
 function repartir(n) {
   if (n <= 0) return [];
   if ([1, 2].includes(n)) return [n];
-  if (n === 5) return [5];                      // solo si no hay otra franja: el comité lo ajusta
+  if (n === 5) return [3, 2];                   // sin otra franja a ≤30 min: una de 3 y otra de 2
   const k = Math.ceil(n / 4), tres = 4 * k - n;
   return [...Array(tres).fill(3), ...Array(k - tres).fill(4)];
 }
@@ -124,25 +124,34 @@ function generarHorario(ins, j) {
     sale.forEach((x) => { movidos[x.jugador_id] = de; primeros.add(x.jugador_id); });
     grupos[de] = grupos[de].filter((x) => !sale.includes(x)); grupos[a].push(...sale);
   };
-  if (!fuera && claves.length > 1) {
+  // Regla de los 30 minutos: un jugador solo se mueve a la franja anterior o siguiente si está a 30 min o menos
+  const cerca = (a, b) => Math.abs(toMin(a) - toMin(b)) <= 30;
+  if (!fuera) {
+    const sinArreglo = new Set();   // franjas de 1, 2 o 5 sin vecina a ≤30 min: se quedan así
     for (let vuelta = 0; vuelta < 40; vuelta++) {
       claves.slice().forEach((k) => { if (!grupos[k].length) { delete grupos[k]; claves.splice(claves.indexOf(k), 1); } });
-      if (claves.length < 2) break;
-      // 2) más de 12 (3 partidas de 4): los que sobran a la franja siguiente (la última, a la anterior)
+      claves.sort((a, b) => toMin(a) - toMin(b));
+      // 2) más de 12 (3 partidas de 4): los que sobran a la franja siguiente si está a ≤30 min (si no, a la
+      //    anterior a ≤30 min); si no hay ninguna, a una franja nueva 30 min después
       const llena = claves.find((k) => grupos[k].length > 12);
-      if (llena) { const i = claves.indexOf(llena); mover(null, grupos[llena].length - 12, llena, claves[i + 1] || claves[i - 1]); continue; }
-      // 3) franjas con 1, 2 o 5: se pasan jugadores a la franja más cercana (o se traen de ella)
-      const mal = claves.find((k) => [1, 2, 5].includes(grupos[k].length));
+      if (llena) {
+        const i = claves.indexOf(llena);
+        let a = [claves[i + 1], claves[i - 1]].find((k) => k && cerca(k, llena));
+        if (!a) { a = toHM(toMin(llena) + 30); grupos[a] = []; claves.push(a); }
+        mover(null, grupos[llena].length - 12, llena, a); continue;
+      }
+      // 3) franjas con 1, 2 o 5: se pasan jugadores a la franja vecina más cercana a ≤30 min (o se traen de ella)
+      const mal = claves.find((k) => [1, 2, 5].includes(grupos[k].length) && !sinArreglo.has(k));
       if (!mal) break;
       const i = claves.indexOf(mal), t = toMin(mal), len = grupos[mal].length;
-      const vecinos = [claves[i - 1], claves[i + 1]].filter(Boolean).sort((a, b) => Math.abs(toMin(a) - t) - Math.abs(toMin(b) - t) || (toMin(b) - toMin(a)));
+      const vecinos = [claves[i - 1], claves[i + 1]].filter((k) => k && cerca(k, mal)).sort((a, b) => Math.abs(toMin(a) - t) - Math.abs(toMin(b) - t) || (toMin(b) - toMin(a)));
       const vale = (c) => c >= 3 && c !== 5 && c <= 12;
       const n = len === 5 ? 1 : len;
       const destino = vecinos.find((k) => vale(grupos[k].length + n));
       if (destino) { mover(null, n, mal, destino); continue; }
       const falta = len === 5 ? 1 : 3 - len, origen = vecinos.find((k) => vale(grupos[k].length - falta));
       if (origen) { mover(null, falta, origen, mal); continue; }
-      mover(null, n, mal, vecinos[0]);
+      sinArreglo.add(mal);   // 5 → una de 3 y otra de 2; 1 o 2 → partida sola (el comité ve el aviso)
     }
     claves.slice().forEach((k) => { if (!grupos[k].length) { delete grupos[k]; claves.splice(claves.indexOf(k), 1); } });
   }
@@ -226,11 +235,11 @@ function Plazos({ j }) {
 function Partida({ p, ins, yoId, onSalida }) {
   const mias = ins.filter((x) => x.partida_id === p.id);
   const soyYo = mias.some((x) => x.jugador_id === yoId);
+  const intentar = !p.salida_hora && p.t1.length + p.t10.length > 0;
   return html`<div class=${"pa" + (soyYo ? " me" : "")}>
-    <div class="t"><b>Partida ${p.numero}</b><span class="num">${mias.length} jug.</span></div>
-    <div class="names">${mias.map((x) => x.nombre_corto).join(", ") || "—"}</div>
-    ${p.salida_hora ? html`<div class="times num"><b>Salida: ${hmBonito(hm(p.salida_hora))} · Tee ${p.salida_tee}</b></div>`
-      : p.t1.length + p.t10.length > 0 && html`<div class="times num">${p.t1.length ? "T1 " + p.t1.map(hmBonito).join(" · ") : ""}${p.t10.length ? "  ·  T10 " + p.t10.map(hmBonito).join(" · ") : ""}</div>`}
+    <div class="t"><b>Partida ${p.numero}</b>${p.salida_hora ? html`<span class="sal num">${hmBonito(hm(p.salida_hora))} · Tee ${p.salida_tee}</span>` : intentar && html`<span class="sin">Sin salida</span>`}</div>
+    <div class="names">${mias.length ? mias.map((x) => html`<div key=${x.jugador_id}>${x.nombre_corto}</div>`) : html`<div>—</div>`}</div>
+    ${intentar && html`<div class="times num">Intentar: ${p.t1.length ? "T1 " + p.t1.map(hmBonito).join(" · ") : ""}${p.t1.length && p.t10.length ? " · " : ""}${p.t10.length ? "T10 " + p.t10.map(hmBonito).join(" · ") : ""}</div>`}
     ${soyYo && onSalida && html`<button class="btn small" style=${{ marginTop: "8px" }} onClick=${() => onSalida(p)}>${p.salida_hora ? "Cambiar salida conseguida" : "Apuntar salida conseguida"}</button>`}
   </div>`;
 }
@@ -359,9 +368,12 @@ function Calendario({ ctx }) {
   })}</div>`;
 }
 
+// Pestaña con la que se abre la ficha (p. ej. "Ver todas las salidas" de Inicio abre el Horario)
+let fichaTabInicial = null;
+const verHorario = (go, id) => { fichaTabInicial = "horario"; go("jornada", id); };
 function FichaJornada({ ctx, id }) {
   const { yo, go } = ctx;
-  const [tab, setTab] = useState("info");
+  const [tab, setTab] = useState(() => { const t = fichaTabInicial || "info"; fichaTabInicial = null; return t; });
   const [d, setD] = useState(null);
   const [modal, setModal] = useState(null);
   const [msg, setMsg] = useState("");
@@ -469,12 +481,12 @@ function Inicio2({ ctx }) {
       ${jj.tipo !== "fuera" && html`<div class="slots num"><div class="slot"><small>Tee 1</small><b>${miP.t1.map(hmBonito).join(" · ") || "—"}</b></div><div class="slot"><small>Tee 10</small><b>${miP.t10.map(hmBonito).join(" · ") || "—"}</b></div></div>`}
       <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}</div>
       <button class="btn" onClick=${() => setModal({ salida: miP })}>Apuntar salida conseguida</button>
-      <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las partidas</button>
+      <button class="btn sec" onClick=${() => verHorario(go, jj.id)}>Ver todas las partidas</button>
       ${puedeCambiarHcp(jj, mia) && html`<button class="btn sec" onClick=${() => setModal("hcp")}>Cambiar hándicap</button>`}</div>`;
     else tarjeta = html`<div class="card"><span class="tag gold">Salida confirmada</span>${titulo}
       <div class="kv"><span>Salida</span><b class="num">${hmBonito(hm(miP.salida_hora))} · Tee ${miP.salida_tee}</b></div>
       <div style=${{ marginTop: "8px" }}>${comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}</div>
-      <button class="btn sec" onClick=${() => go("jornada", jj.id)}>Ver todas las salidas</button>
+      <button class="btn sec" onClick=${() => verHorario(go, jj.id)}>Ver todas las salidas</button>
       ${puedeCambiarHcp(jj, mia) && html`<button class="btn sec" onClick=${() => setModal("hcp")}>Cambiar hándicap</button>`}
       <button class="btn warn sec" onClick=${() => setModal("baja")}>Darme de baja</button></div>`;
   }

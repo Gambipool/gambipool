@@ -134,8 +134,12 @@ table.prev td,table.prev th{padding:6px 4px;border-bottom:1px solid var(--line2)
 .pa{background:#fff;margin:8px 12px;border:1px solid var(--line);border-radius:6px;padding:10px 12px}
 .pa .t{display:flex;justify-content:space-between;align-items:center;font-size:13px}
 .pa .t b{font-family:var(--serif);font-size:15px}
-.pa .names{font-size:14px;margin-top:4px;line-height:1.45}
-.pa .times{font-size:13px;color:var(--muted);margin-top:4px}
+.pa .t .sal{font-family:var(--sans);font-weight:700;font-size:16px;color:var(--hd)}
+.pa .t .sin{font-size:12px;color:var(--muted)}
+.pa .names{font-size:15px;margin-top:2px;line-height:1.35}
+.pa .names>div{padding:7px 0;border-bottom:1px solid var(--line)}
+.pa .names>div:last-child{border-bottom:0;padding-bottom:2px}
+.pa .times{font-size:13px;color:var(--muted);margin-top:6px}
 .pa.me{border-color:var(--acc);background:#fffaf0}
 .pl{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line2);font-size:14px}
 .pl:last-child{border-bottom:0}
@@ -275,3 +279,9 @@ body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area
 .rech{background:var(--warnbg);color:var(--warn);font-size:14px;padding:10px 14px;border-bottom:1px solid #f0d3c8}
 .rech small{display:block;margin-top:4px;opacity:.85}
 .rech .btns{margin-top:8px}
+
+/* Clasificación: cabecera fija (selectores, Scratch/Hándicap y títulos) */
+.clfijo{position:sticky;top:calc(var(--hdh,0px) + var(--tabsh,0px));z-index:3;background:var(--bg);padding-bottom:8px}
+.clfijo .sels{padding:8px 12px 0}.clfijo .sels .inp{padding:7px 10px}
+.clfijo .seg2{margin:8px 12px 0}.clfijo .seg2 button{padding:7px 0}
+.clas .cl.h{position:sticky;top:calc(var(--hdh,0px) + var(--tabsh,0px) + var(--fijoh,0px));z-index:2;box-shadow:0 1px 0 var(--line2),0 3px 5px -2px rgba(0,0,0,.12)}
