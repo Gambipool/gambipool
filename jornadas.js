@@ -38,14 +38,14 @@ function estadoJ(j) {
   const hoy = hoyMadrid(), now = new Date();
   if (j.estado === "suspendida") return { k: "susp", txt: "Suspendida" };
   if (j.tipo === "sustitucion") return { k: fin(j) < hoy ? "jugada" : "reserva", txt: fin(j) < hoy ? "Sin usar" : "Reserva" };
-  if (fin(j) < hoy) return { k: "jugada", txt: "Jugada ✓" };
+  if (fin(j) < hoy || j.cerrada) return { k: "jugada", txt: "Jugada ✓" };   // cerrada por el comité = jugada, aunque sea hoy
   if (j.fecha <= hoy) return { k: "hoy", txt: "Hoy" };
   if (!inscribible(j)) return { k: "pend", txt: "Pendiente" };
   if (now < new Date(j.abre)) return { k: "antes", txt: "Abre " + fmtPlazo(j.abre) };
   if (now < new Date(j.cierre)) return { k: "abierta", txt: "Cierra " + fmtPlazo(j.cierre) };
   return { k: "cerrada", txt: "Inscripción cerrada" };
 }
-const proxima = (js) => js.find((j) => j.tipo !== "sustitucion" && j.estado === "programada" && fin(j) >= hoyMadrid());
+const proxima = (js) => js.find((j) => j.tipo !== "sustitucion" && j.estado === "programada" && !j.cerrada && fin(j) >= hoyMadrid());
 
 function hcpJuego(j, hi, barras) {
   if (hi === "" || hi == null || isNaN(hi)) return null;
@@ -438,6 +438,19 @@ function ListaInscritos({ ins, j, yoId }) {
 }
 
 /* ---------- Inicio ---------- */
+// Inicio (día de jornada): si tu partida ya tiene los 18 hoyos y el marcador no ha validado, se avisa
+function AvisoValidar({ p, nomMarc }) {
+  const [falta, setFalta] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    Promise.all([q(sb.from("inscripciones").select("id, retirado").eq("partida_id", p.id).eq("estado", "inscrito")), q(sb.rpc("directo", { p_jornada: p.jornada_id }))])
+      .then(([ins, dir]) => { if (!vivo || !ins || !ins.length) return; const h = {}; (dir || []).forEach((x) => (h[x.inscripcion_id] = x.hoyos));
+        setFalta(ins.some((x) => !x.retirado) && ins.every((x) => x.retirado || (h[x.id] || 0) >= 18)); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [p.id]);
+  return falta ? html`<div class="aviso falta" style=${{ margin: "10px 0 0" }}><b>Falta validar la tarjeta.</b> Avisa a ${nomMarc}: debe pulsar «Validar tarjeta».</div>` : null;
+}
+
 function Inicio2({ ctx }) {
   const { yo, jornadas, go } = ctx;
   const j = proxima(jornadas);
@@ -461,6 +474,7 @@ function Inicio2({ ctx }) {
       ${miP && html`<div class="kv"><span>Marcador</span><b>${miP.marcador_id ? ((ins.find((x) => x.jugador_id === miP.marcador_id) || {}).nombre_corto || "Comité") : "Aún nadie"}</b></div>`}
       ${miP && comp.map((x) => html`<div key=${x.jugador_id} class=${"pl" + (x.jugador_id === yo.id ? " me" : "")}><span class="av">${iniciales(x.nombre_corto)}</span>${x.nombre_corto}<span class="h num">Hcp ${numES(x.hcp_exacto)}</span></div>`)}
       ${miP && !miP.marcador_id && html`<p class="muted" style=${{ margin: "8px 0 0" }}>El primero de la partida que abra la tarjeta será el marcador.</p>`}
+      ${miP && miP.marcador_id && miP.marcador_id !== yo.id && !miP.validada_at && html`<${AvisoValidar} p=${miP} nomMarc=${(ins.find((x) => x.jugador_id === miP.marcador_id) || {}).nombre_corto || "el marcador"}/>`}
       ${miP && html`<button class="btn" onClick=${() => ctx.setTab("tarjeta")}>Abrir tarjeta</button>`}
       <button class="btn sec" onClick=${() => ctx.setTab("clasificacion")}>Ver el directo</button></div>`;
     else if (!mia && e.k === "antes") tarjeta = html`<div class="card"><span class="tag gr">Próxima jornada</span>${titulo}<div class="kv"><span>Abre la inscripción</span><b>${fmtPlazo(jj.abre)}</b></div>${verIns}</div>`;

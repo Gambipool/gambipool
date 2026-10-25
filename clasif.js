@@ -122,9 +122,9 @@ function ResultadoJornada({ ctx, j, cat }) {
   const me = (r) => r.jugador_id === yo.id || r.nombre === yo.nombre_corto;
   return html`<div class="clw">
     <div class="cl p5 h"><span>#</span><span>Jugador</span><span>Hcp</span><span>${cat === "scratch" ? "Bruto" : "Neto"}</span><span>Pts</span></div>
-    ${ok.map((r) => html`<button key=${r.id} class=${"cl p5" + (me(r) ? " me" : "")} onClick=${() => r.jugador_id && go("tarjeta-jugador", `${j.id}|${r.jugador_id}|${cat}`)}>
+    ${ok.map((r) => html`<button key=${r.id} class=${"cl p5" + (me(r) ? " me" : "")} onClick=${() => r.jugador_id && verTarjeta(go, `${j.id}|${r.jugador_id}|${cat}`, r.nombre, puestoJ(ok, r))}>
       <span class="p">${puestoJ(ok, r)}</span><span class="nm">${r.nombre}</span><span class=${"mu" + (empate(r) ? " de" : "")}>${numES(r.hcp_exacto)}</span><span>${r.resultado ?? "—"}</span><span><b>${numPts(r.total)}</b></span></button>`)}
-    ${ret.map((r) => html`<div key=${r.id} class="cl p5 ret"><span class="p">—</span><span class="nm">${r.nombre}</span><span class="mu">${numES(r.hcp_exacto)}</span><span>Ret.</span><span>${numPts(r.total)}</span></div>`)}
+    ${ret.map((r) => html`<button key=${r.id} class="cl p5 ret" onClick=${() => r.jugador_id && verTarjeta(go, `${j.id}|${r.jugador_id}|${cat}`, r.nombre, "")}><span class="p">—</span><span class="nm">${r.nombre}</span><span class="mu">${numES(r.hcp_exacto)}</span><span>Ret.</span><span>${numPts(r.total)}</span></button>`)}
   </div>`;
 }
 
@@ -149,7 +149,9 @@ function Directo({ ctx, j, cat }) {
   const [ls, setLs] = useState(() => cacheLeer(`dir_${j.id}`) || null);
   useEffect(() => {
     const f = () => !document.hidden && cargarDirecto(j).then((v) => { cacheGuardar(`dir_${j.id}`, v, false); setLs(v); }).catch(() => {});
-    f(); const t = setInterval(f, 30000); return () => clearInterval(t);
+    // al volver a la app se recarga al momento (el iPhone congela el temporizador en segundo plano)
+    f(); const t = setInterval(f, 30000); document.addEventListener("visibilitychange", f); window.addEventListener("pageshow", f);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", f); window.removeEventListener("pageshow", f); };
   }, [j.id]);
   if (!ls) return html`<${Spinner}/>`;
   const k = cat === "scratch" ? "rb" : "rn";
@@ -162,41 +164,46 @@ function Directo({ ctx, j, cat }) {
     ${!j.cerrada && j.fecha <= hoyMadrid() && fin(j) >= hoyMadrid() && ls.some((x) => x.jugador_id === yo.id && x.partida_id) && html`<div style=${{ margin: "10px 12px 0" }}><button class="btn sec" onClick=${() => { ctx.setTab("tarjeta"); window.scrollTo(0, 0); }}>Volver a mi tarjeta</button></div>`}
     <div class="live"><span class="dotl"></span>En directo</div>
     <div class="cl h"><span>#</span><span>Jugador</span><span>Hoyos</span><span>${cat === "scratch" ? "Bruto" : "Neto"}</span></div>
-    ${jugando.map((x, i) => html`<button key=${x.inscripcion_id} class=${"cl" + (me(x) ? " me" : "")} onClick=${() => go("tarjeta-jugador", `${j.id}|${x.jugador_id}|${cat}`)}>
+    ${jugando.map((x, i) => html`<button key=${x.inscripcion_id} class=${"cl" + (me(x) ? " me" : "")} onClick=${() => verTarjeta(go, `${j.id}|${x.jugador_id}|${cat}|${x.inscripcion_id}`, x.nombre_corto, (pos[i].t ? "T" : "") + pos[i].n)}>
       <span class="p">${pos[i].t ? "T" : ""}${pos[i].n}</span><span class="nm">${x.nombre_corto}</span><span class="mu">${x.thru === 18 ? "F" : x.thru}</span><span><b>${relPar(x[k])}</b></span></button>`)}
     ${sin.map((x) => html`<div key=${x.inscripcion_id} class=${"cl sinj" + (me(x) ? " me" : "")}><span class="p"></span><span class="nm">${x.nombre_corto}</span><span class="mu">0</span><span>—</span></div>`)}
-    ${ret.map((x) => html`<div key=${x.inscripcion_id} class="cl ret"><span class="p">—</span><span class="nm">${x.nombre_corto}</span><span class="mu"></span><span>Ret.</span></div>`)}
+    ${ret.map((x) => html`<button key=${x.inscripcion_id} class="cl ret" onClick=${() => verTarjeta(go, `${j.id}|${x.jugador_id}|${cat}|${x.inscripcion_id}`, x.nombre_corto, "")}><span class="p">—</span><span class="nm">${x.nombre_corto}</span><span class="mu">${x.thru || ""}</span><span>Ret.</span></button>`)}
   </div>`;
 }
 
 /* ---------- Tarjeta de un jugador (desde la clasificación) ---------- */
+// p = "jornada|jugador|categoría[|inscripción]". Cada tarjeta vista se guarda en memoria: al volver a abrirla sale al
+// momento y se actualiza por detrás. El nombre y el puesto llegan de la lista para enseñar la cabecera sin esperar.
+const cacheTJ = {}, pistaTJ = {};
+const verTarjeta = (go, p, nombre, pt) => { pistaTJ[p] = { nombre, pt }; go("tarjeta-jugador", p); };
 function TarjetaJugador({ ctx, p }) {
-  const [jid, uid, cat] = p.split("|");
-  const [d, setD] = useState(null);
+  const [jid, uid, cat, iid] = p.split("|");
+  const [d, setD] = useState(() => cacheTJ[p] || null);
   const [sinRed, setSinRed] = useState(false);
   useEffect(() => { let t = null, vivo = true, re = null; const cargar = async () => { try {
-    const { data: j, error: ej } = await sb.from("jornadas").select("*").eq("id", +jid).single();
-    if (!j) throw ej || new Error("sin datos");
-    const [{ data: ins }, { data: rs }, hoyos] = await Promise.all([
-      sb.rpc("inscritos", { p_jornada: +jid }),
-      sb.from("resultados").select("*").eq("jornada_id", +jid).eq("categoria", cat),
-      cargarHoyos(j.campo),
-    ]);
+    // Todo a la vez: la jornada ya está en el móvil y los hoyos en memoria; si llega la inscripción, los golpes también
+    const jc = (ctx.jornadas || []).find((x) => x.id === +jid);
+    const j = jc || await q(sb.from("jornadas").select("*").eq("id", +jid).single());
+    const insP = iid ? Promise.resolve(+iid)
+      : q(sb.from("inscripciones").select("id").eq("jornada_id", +jid).eq("jugador_id", uid).eq("estado", "inscrito").maybeSingle()).then((r) => (r ? r.id : null));
+    const golP = insP.then((i) => (i ? Promise.all([q(sb.from("golpes").select("hoyo, golpes").eq("inscripcion_id", i)), q(sb.from("inscripciones").select("retirado, bruto_manual").eq("id", i).single())]) : [[], {}]));
+    const [ins, rs, hoyos, , [gs, e]] = await Promise.all([q(sb.rpc("inscritos", { p_jornada: +jid })), q(sb.from("resultados").select("*").eq("jornada_id", +jid).eq("categoria", cat)), cargarHoyos(j.campo), insP, golP]);
     const x = (ins || []).find((y) => y.jugador_id === uid);
-    let golpes = {}, est = {};
-    if (x) {
-      const [{ data: gs }, { data: e }] = await Promise.all([sb.from("golpes").select("hoyo, golpes").eq("inscripcion_id", x.inscripcion_id), sb.from("inscripciones").select("retirado, bruto_manual").eq("id", x.inscripcion_id).single()]);
-      golpes = { [x.inscripcion_id]: Object.fromEntries((gs || []).map((g) => [g.hoyo, g.golpes])) }; est = e || {};
-    }
+    const golpes = x ? { [x.inscripcion_id]: Object.fromEntries((gs || []).map((g) => [g.hoyo, g.golpes])) } : {};
     if (!vivo) return;
     const r = (rs || []).find((y) => y.jugador_id === uid);
-    setD({ j, x: x ? { ...x, ...est, ini: "Golpes" } : null, r: r ? { ...r, pt: puestoJ(rs, r) } : undefined, golpes, hoyos });
+    const v = { j, x: x ? { ...x, ...(e || {}), ini: "Golpes" } : null, r: r ? { ...r, pt: puestoJ(rs, r) } : undefined, golpes, hoyos };
+    cacheTJ[p] = v; setD(v);
     // jornada en juego: se actualiza sola cada 30 s, como el directo
     if (!j.cerrada && !t) t = setInterval(() => !document.hidden && cargar(), 30000);
     setSinRed(false);
   } catch (e) { if (vivo) { setSinRed(true); clearTimeout(re); re = setTimeout(cargar, 8000); } } };   // sin red: reintenta, sin rueda infinita
-  cargar(); return () => { vivo = false; t && clearInterval(t); clearTimeout(re); }; }, [p]);
-  if (!d) return sinRed ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Sin conexión. Reintentando…</p></div>` : html`<${Spinner}/>`;
+  const vuelve = () => { if (!document.hidden) cargar(); };
+  cargar(); document.addEventListener("visibilitychange", vuelve); window.addEventListener("pageshow", vuelve);
+  return () => { vivo = false; t && clearInterval(t); clearTimeout(re); document.removeEventListener("visibilitychange", vuelve); window.removeEventListener("pageshow", vuelve); }; }, [p]);
+  const pista = pistaTJ[p];
+  if (!d) return html`<div>${pista && pista.nombre && html`<div class="gbh"><span class="num">${pista.pt ? pista.pt + "." : ""}</span><b>${pista.nombre}</b><span></span><span></span><span></span></div>`}
+    ${sinRed ? html`<div class="card"><p class="muted" style=${{ margin: 0 }}>Sin conexión. Reintentando…</p></div>` : html`<${Spinner}/>`}</div>`;
   const { j, x, r, golpes, hoyos } = d;
   const nombre = (x && x.nombre_corto) || (r && r.nombre) || "";
   const o = x ? golpes[x.inscripcion_id] || {} : {};
@@ -204,9 +211,9 @@ function TarjetaJugador({ ctx, p }) {
   const parJug = Object.keys(o).reduce((s, h) => s + ((hoyos.find((q) => q.hoyo === +h) || {}).par || 0), 0);
   const tieneTarjeta = x && n > 0 && hoyos.length;
   return html`<div>
-    <div class="gbh"><span class="num">${r && r.pt ? r.pt + "." : ""}</span><b>${nombre}</b>
+    <div class="gbh"><span class="num">${r && r.pt ? r.pt + "." : pista && pista.pt && !(x && x.retirado) ? pista.pt + "." : ""}</span><b>${nombre}</b>
       <span class="num">${n === 18 ? bruto : x && x.bruto_manual != null ? x.bruto_manual : ""}</span>
-      <span class=${"num rl" + (bruto - parJug < 0 ? " neg" : "")}>${n ? relPar(bruto - parJug) : ""}</span><span>${n === 18 ? "F" : n || ""}</span></div>
+      <span class=${"num rl" + (bruto - parJug < 0 ? " neg" : "")}>${n ? relPar(bruto - parJug) : ""}</span><span>${(x && x.retirado) || (r && r.retirado) ? "Ret." : n === 18 ? "F" : n || ""}</span></div>
     ${tieneTarjeta ? html`<${ResumenTarjeta} jug=${[x]} golpes=${golpes} hoyos=${hoyos}/>`
       : html`<div class="card"><p class="muted" style=${{ margin: 0 }}>${r && !x ? "Resultado cargado del Excel: no hay tarjeta hoyo a hoyo." : "No hay golpes anotados en la app."}</p>
         ${r && html`<div class="kv"><span>${cat === "scratch" ? "Bruto" : "Neto"}</span><b class="num">${r.retirado ? "Retirado" : r.resultado}</b></div><div class="kv"><span>Hcp exacto · de juego</span><b class="num">${numES(r.hcp_exacto)} · ${r.hcp_juego ?? "—"}</b></div>`}</div>`}

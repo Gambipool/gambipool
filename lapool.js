@@ -263,15 +263,17 @@ async function calcEstadisticas(T) {
   const extremo = (cat, f) => { const v = res.filter((r) => r.categoria === cat && !r.retirado && r.resultado != null); if (!v.length) return []; const m = f(...v.map((r) => r.resultado)); return v.filter((r) => r.resultado === m).map((r) => ({ n: r.nombre, v: m, j: J[r.jornada_id] })); };
   const mejor = (cat) => extremo(cat, Math.min), peor = (cat) => extremo(cat, Math.max);
   const ext9 = (k, f) => { const v = nueves[k]; if (!v.length) return []; const m = f(...v.map((x) => x.v)); return v.filter((x) => x.v === m); };
-  // Lentos: salida → último hoyo anotado, media por jugador, mínimo 3 partidas
-  const dur = {};
+  // Lentos: salida → último hoyo anotado, media por jugador, mínimo 3 partidas (o las jornadas medidas, si son menos)
+  const dur = {}, jMed = new Set();   // jornadas con alguna partida medida
   parts.forEach((p) => {
     if (!p.salida_hora) return; const xs = ins.filter((x) => x.partida_id === p.id && !x.retirado); if (!xs.length) return;
     const fin = Math.max(...xs.flatMap((x) => (G[x.id] || []).map((g) => +new Date(g.at)))); if (!isFinite(fin)) return;
     const min = (fin - madrid(J[p.jornada_id].fecha, p.salida_hora)) / 60000; if (min < 90 || min > 480) return;
-    xs.forEach((x) => { const n = nom[x.jugador_id]; if (n) (dur[n] = dur[n] || []).push(min); });
+    jMed.add(p.jornada_id); xs.forEach((x) => { const n = nom[x.jugador_id]; if (n) (dur[n] = dur[n] || []).push(min); });
   });
-  const lentos = Object.entries(dur).filter(([, v]) => v.length >= 3).map(([n, v]) => [n, v.reduce((a, b) => a + b, 0) / v.length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  // mínimo 3 partidas; mientras haya menos de 3 jornadas medidas, tantas como jornadas medidas
+  const minLentos = Math.max(1, Math.min(3, jMed.size));
+  const lentos = Object.entries(dur).filter(([, v]) => v.length >= minLentos).map(([n, v]) => [n, v.reduce((a, b) => a + b, 0) / v.length]).sort((a, b) => b[1] - a[1]).slice(0, 5);
   return { bir: top(cnt.bir, 3), tri: top(cnt.tri, 3), eag: top(cnt.eag, 1).filter(([, v]) => v > 0), racha, ace, ms: mejor("scratch"), mh: mejor("handicap"), ps: peor("scratch"), ph: peor("handicap"), lentos,
     i1: ext9("ida", Math.min), v1: ext9("vta", Math.min), i0: ext9("ida", Math.max), v0: ext9("vta", Math.max) };
 }

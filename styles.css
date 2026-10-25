@@ -285,3 +285,6 @@ body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area
 .clfijo .sels{padding:8px 12px 0}.clfijo .sels .inp{padding:7px 10px}
 .clfijo .seg2{margin:8px 12px 0}.clfijo .seg2 button{padding:7px 0}
 .clas .cl.h{position:sticky;top:calc(var(--hdh,0px) + var(--tabsh,0px) + var(--fijoh,0px));z-index:2;box-shadow:0 1px 0 var(--line2),0 3px 5px -2px rgba(0,0,0,.12)}
+.aviso.falta{color:var(--ink)}.aviso.falta b{color:var(--accdark)}
+.card .aviso.falta{border-radius:4px}
+.kp.bloq button{opacity:.55;transition:opacity .1s}

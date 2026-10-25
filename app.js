@@ -277,11 +277,11 @@ function EditarJugador({ temporada, id, volver, yo }) {
   const [guardando, setGuardando] = useState(false);
   useEffect(() => {
     (async () => {
-      if (!id) return setJ({ nombre: "", nombre_corto: "", email: "", movil: "", licencia: "", cats: [], es_admin: false, estado: "activo", pagado: false });
+      if (!id) return setJ({ nombre: "", nombre_corto: "", email: "", movil: "", licencia: "", hcp: "", cats: [], es_admin: false, estado: "activo", pagado: false });
       const { data, error } = await sb.from("jugadores").select("*, jugador_temporada(temporada_id, estado, pagado)").eq("id", id).single();
       if (error) return setErr(errTxt(error));
       const jt = (data.jugador_temporada || []).find((x) => x.temporada_id === temporada.id);
-      setJ({ ...data, movil: data.movil || "", licencia: data.licencia || "", cats: data.saludo_cats || [], estado: jt ? jt.estado : "activo", pagado: jt ? jt.pagado : false });
+      setJ({ ...data, movil: data.movil || "", licencia: data.licencia || "", hcp: data.ultimo_hcp == null ? "" : numES(data.ultimo_hcp), cats: data.saludo_cats || [], estado: jt ? jt.estado : "activo", pagado: jt ? jt.pagado : false });
     })();
   }, [id]);
   if (!j) return err ? html`<div class="err" style=${{"margin": "12px"}}>${err}</div>` : html`<${Spinner}/>`;
@@ -290,6 +290,9 @@ function EditarJugador({ temporada, id, volver, yo }) {
     setErr("");
     const d = { nombre: j.nombre.trim(), nombre_corto: j.nombre_corto.trim() || j.nombre.trim(), email: j.email.trim().toLowerCase(), movil: j.movil.trim() || null, licencia: j.licencia.trim() || null, es_admin: !!j.es_admin, saludo_cats: j.cats || [] };
     if (!d.nombre) return setErr("Falta el nombre y apellidos.");
+    const hi = parseHcp(j.hcp || "");
+    if (hi != null && (isNaN(hi) || hi < -10 || hi > 54)) return setErr("El hándicap no es válido (por ejemplo 12,4; un plus se escribe +1,2).");
+    d.ultimo_hcp = hi;
     if (!emailValido(d.email)) return setErr("El email no es válido.");
     setGuardando(true);
     try {
@@ -309,6 +312,7 @@ function EditarJugador({ temporada, id, volver, yo }) {
     <label class="l">Email</label><input class="inp" type="email" autocapitalize="off" value=${j.email} onInput=${set("email")} />
     <label class="l">Móvil</label><input class="inp" type="tel" value=${j.movil} onInput=${set("movil")} />
     <label class="l">Nº de licencia</label><input class="inp" value=${j.licencia} onInput=${set("licencia")} />
+    <label class="l">Último hándicap</label><input class="inp num" style=${{ maxWidth: "140px" }} inputmode="decimal" value=${j.hcp} onInput=${set("hcp")} />
     <label class="l">Saludos en Inicio</label><${CatsSaludo} sel=${j.cats || []} onChange=${(c) => setJ({ ...j, cats: c })}/>
     <label class="l">Estado en ${temporada.nombre}</label>
     <div class="seg">${Object.entries(ESTADOS).map(([k, l]) => html`<button type="button" key=${k} class=${j.estado === k ? "on" : ""} onClick=${() => setJ({ ...j, estado: k })}>${l}</button>`)}</div>
@@ -488,7 +492,7 @@ function elegirSaludo(yo, frases) {
    Al abrir la app y al volver a ella se mira el index.html publicado (sin caché). Si es de una versión
    posterior, se recarga con una dirección nueva (así el iPhone no usa la copia guardada).
    Nunca con golpes pendientes de enviar, en la pestaña Tarjeta, con una pantalla abierta ni escribiendo. */
-const VERSION = 33;
+const VERSION = 34;
 const enUso = { tab: "inicio" };
 async function buscarVersion() {
   try {

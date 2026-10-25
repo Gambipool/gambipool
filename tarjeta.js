@@ -122,6 +122,7 @@ function Tarjeta({ ctx, pid, comite }) {
   const [rech, setRech] = useState(leerRech);
 
   const version = React.useRef(0);
+  const [bloq, setBloq] = useState(false); const bloqT = React.useRef(null);
   const iniciada = React.useRef(false);             // ya se colocó el hoyo inicial
   const cargar = useCallback(async (primera) => {
     try {
@@ -148,7 +149,10 @@ function Tarjeta({ ctx, pid, comite }) {
     const t = setInterval(async () => { if (document.hidden) return; const r = await enviarCola(); setCola(r.pendientes); setSinSenal(r.pendientes > 0); if (r.errores.length) setErr(r.errores[0]); cargar(false); }, 20000);
     const upd = () => { setCola(leerCola().length); setRech(leerRech()); };
     window.addEventListener("gp-cola", upd);
-    return () => { clearInterval(t); window.removeEventListener("gp-cola", upd); };
+    // Al volver a la app (el iPhone congela el temporizador en segundo plano): se recarga al momento
+    const vuelve = () => { if (!document.hidden) cargar(false); };
+    document.addEventListener("visibilitychange", vuelve); window.addEventListener("pageshow", vuelve);
+    return () => { clearInterval(t); window.removeEventListener("gp-cola", upd); document.removeEventListener("visibilitychange", vuelve); window.removeEventListener("pageshow", vuelve); };
   }, [pid]);
 
   if (err && !d) return html`<div class="err" style=${{ margin: "12px" }}>${err}</div>`;
@@ -174,12 +178,15 @@ function Tarjeta({ ctx, pid, comite }) {
     version.current++; setD({ ...d, golpes: ng }); setErr("");
     encolar({ t: "g", i: x.inscripcion_id, h, g: v });
   };
+  const tarjetaCompleta = jug.some((x) => !x.retirado) && orden.every((h) => completo(h));
   const siguienteSinGolpe = (x) => { const k0 = jug.findIndex((y) => y.inscripcion_id === x.inscripcion_id); const rot = [...jug.slice(k0 + 1), ...jug.slice(0, k0)]; return rot.find((y) => !y.retirado && !g(y, hoyo)); };
+  // Al saltar al siguiente jugador, el teclado no hace caso durante 0,3 s (evita el doble toque)
+  const saltar = (x) => { const sig = siguienteSinGolpe(x); setModal(sig ? { teclado: sig } : null); if (sig) { setBloq(true); clearTimeout(bloqT.current); bloqT.current = setTimeout(() => setBloq(false), 300); } };
   const elegir = (x, v) => {
+    if (bloq) return;
     if (golpeRaro(v, hh.par)) return setModal({ raro: { x, v } });
     poner(x, hoyo, v);
-    const sig = siguienteSinGolpe(x);
-    setModal(sig ? { teclado: sig } : null);
+    saltar(x);
   };
   const retirar = (x, r) => { version.current++; setD({ ...d, jug: jug.map((y) => (y.inscripcion_id === x.inscripcion_id ? { ...y, retirado: r } : y)) }); encolar({ t: "r", i: x.inscripcion_id, r }); setModal(null); };
   const misIds = jug.map((x) => x.inscripcion_id);
@@ -207,7 +214,8 @@ function Tarjeta({ ctx, pid, comite }) {
       <small>${misRech[0].msg}</small>
       <div class="btns">${puedeEditar && html`<button class="btn small" onClick=${reanotar}>Volver a anotarlos</button>`}<button class="btn sec small" onClick=${descartar}>Descartar</button></div></div>`}
     ${validada && html`<div class="aviso">Tarjeta validada${comite ? "" : ". Si hay un error, avisad al comité"}.</div>`}
-    ${!validada && !j.cerrada && !comite && !soyMarcador && html`<div class="aviso">${nomMarc ? html`Anota <b>${nomMarc}</b>. Tú solo ves la tarjeta.` : "Todavía no anota nadie."}</div>`}`;
+    ${!validada && !j.cerrada && !comite && !soyMarcador && (tarjetaCompleta && nomMarc ? html`<div class="aviso falta"><b>Falta validar la tarjeta.</b> Avisa a ${nomMarc}: debe pulsar «Validar tarjeta».</div>`
+      : html`<div class="aviso">${nomMarc ? html`Anota <b>${nomMarc}</b>. Tú solo ves la tarjeta.` : "Todavía no anota nadie."}</div>`)}`;
 
   let cuerpo;
   if (vista === "resumen") {
@@ -229,7 +237,7 @@ function Tarjeta({ ctx, pid, comite }) {
           <span class="sc-t num">${x.retirado ? "" : relPar(va(x))}</span></div>`; })}</div>
       <div class="btns" style=${{ margin: "0 12px" }}>
         ${idx > 0 ? html`<button class="btn sec" onClick=${() => setIdx(idx - 1)}>‹ Hoyo ${orden[idx - 1]}</button>` : html`<span style=${{ flex: 1 }}></span>`}
-        ${idx < 17 ? html`<button class="btn" onClick=${() => setIdx(idx + 1)}>Hoyo ${orden[idx + 1]} ›</button>` : html`<button class="btn" onClick=${() => setVista("resumen")}>Ver resumen</button>`}
+        ${idx < 17 ? html`<button class="btn" onClick=${() => setIdx(idx + 1)}>Hoyo ${orden[idx + 1]} ›</button>` : html`<button class="btn" onClick=${() => { setVista("resumen"); window.scrollTo(0, 0); }}>${puedeEditar && !validada && !j.cerrada ? "Resumen y validar" : "Ver resumen"}</button>`}
       </div>
       <div style=${{ margin: "0 12px 20px" }}>
         ${idx < 17 && html`<button class="btn sec" onClick=${() => setVista("resumen")}>Ver resumen</button>`}
@@ -243,7 +251,7 @@ function Tarjeta({ ctx, pid, comite }) {
     const x = modal.teclado, v = g(x, hoyo);
     hoja = html`<div class="modal" onClick=${(e) => e.target === e.currentTarget && setModal(null)}><div class="sheet">
       <h3>${x.nombre_corto}</h3><div class="muted">Hoyo ${hoyo} · Par ${hh.par}</div>
-      <div class="kp num">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => html`<button key=${n} class=${(n === hh.par ? "par " : "") + (n === v ? "sel" : "")} onClick=${() => elegir(x, n)}>${n}</button>`)}
+      <div class=${"kp num" + (bloq ? " bloq" : "")}>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => html`<button key=${n} class=${(n === hh.par ? "par " : "") + (n === v ? "sel" : "")} onClick=${() => elegir(x, n)}>${n}</button>`)}
         <button class="mas" onClick=${() => setModal({ mas10: x })}>+10</button><button class="del" onClick=${() => { poner(x, hoyo, null); setModal(null); }}>Borrar</button></div>
     </div></div>`;
   } else if (modal && modal.mas10) {
@@ -253,7 +261,7 @@ function Tarjeta({ ctx, pid, comite }) {
     const { x, v } = modal.raro;
     hoja = html`<div class="modal"><div class="sheet"><h3>¿Seguro?</h3>
       <p class="muted">${x.nombre_corto}: <b>${v} ${v === 1 ? "golpe" : "golpes"}</b> en el hoyo ${hoyo} (par ${hh.par}). Es un resultado poco habitual.</p>
-      <button class="btn" onClick=${() => { poner(x, hoyo, v); const sig = siguienteSinGolpe(x); setModal(sig ? { teclado: sig } : null); }}>Sí, ${v === 1 ? "es 1" : "son " + v}</button>
+      <button class="btn" onClick=${() => { poner(x, hoyo, v); saltar(x); }}>Sí, ${v === 1 ? "es 1" : "son " + v}</button>
       <button class="btn sec" onClick=${() => setModal({ teclado: x })}>Corregir</button></div></div>`;
   } else if (modal && modal.retirar) {
     const x = modal.retirar;
